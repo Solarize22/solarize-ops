@@ -1,36 +1,62 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import Link from "next/link";
-import { jobs, invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
+import { jobs as staticJobs, invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
-import { AlertTriangle, CheckCircle2, DollarSign, ClipboardList, Wrench, FileText, CalendarDays } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, CalendarDays } from "lucide-react";
+
+const STAGE_MAP = {
+  "Scheduled":             20,
+  "Install Complete":      40,
+  "Inspection Scheduled":  60,
+  "Inspection Passed":     80,
+  "Fully Paid / Closed":   100,
+  "Rescheduled / Issue":   50,
+};
+
+const PIPELINE_STAGES = [
+  { label: "Scheduled",            bg: "#dbeafe", color: "#1e3a8a" },
+  { label: "Install Complete",     bg: "#d8f3dc", color: "#1b4332" },
+  { label: "Inspection Scheduled", bg: "#dbeafe", color: "#1e3a8a" },
+  { label: "Inspection Passed",    bg: "#d8f3dc", color: "#1b4332" },
+  { label: "Fully Paid / Closed",  bg: "#1a1917", color: "#ffffff" },
+  { label: "Rescheduled / Issue",  bg: "#fee2e2", color: "#7f1d1d" },
+];
 
 export default function DashboardPage() {
-  const STAGE_MAP = {
-    "Scheduled":             20,
-    "Install Complete":      40,
-    "Inspection Scheduled":  60,
-    "Inspection Passed":     80,
-    "Fully Paid / Closed":   100,
-    "Rescheduled / Issue":   50,
-  };
+  const [allJobs, setAllJobs] = useState(staticJobs);
 
-  const totalRevenue = jobs.reduce((s, j) => s + (j.contractAmount || 0), 0);
-  const activeJobs = jobs.filter(j => j.status !== "Fully Paid / Closed").length;
-  const openService = serviceItems.filter(s => s.status !== "Resolved").length;
-  const pendingPermits = permits.filter(p => p.status !== "Approved").length;
+  useEffect(() => {
+    fetch("/api/jobs")
+      .then(r => r.json())
+      .then(imported => {
+        if (imported.length > 0) {
+          setAllJobs(prev => {
+            const ids = new Set(prev.map(j => j.id));
+            return [...prev, ...imported.filter(j => !ids.has(j.id))];
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const totalRevenue    = allJobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
+  const activeJobs      = allJobs.filter(j => j.status !== "Fully Paid / Closed").length;
+  const openService     = serviceItems.filter(s => s.status !== "Resolved").length;
+  const pendingPermits  = permits.filter(p => p.status !== "Approved").length;
   const overdueInvoices = invoices.filter(i => i.status === "Overdue");
   const upcomingSchedule = scheduleItems.filter(s => s.status !== "Cancelled").slice(0, 3);
-  const issueJobs = jobs.filter(j => j.status === "Rescheduled / Issue");
+  const issueJobs       = allJobs.filter(j => j.status === "Rescheduled / Issue");
   const highServiceItems = serviceItems.filter(s => s.urgency === "High" && s.status !== "Resolved");
 
-  const PIPELINE_STAGES = [
-    "Scheduled", "Install Complete", "Inspection Scheduled",
-    "Inspection Passed", "Fully Paid / Closed", "Rescheduled / Issue",
-  ];
   const stageCounts = {};
-  PIPELINE_STAGES.forEach(s => { stageCounts[s] = jobs.filter(j => j.status === s).length; });
+  PIPELINE_STAGES.forEach(({ label }) => {
+    stageCounts[label] = allJobs.filter(j => j.status === label).length;
+  });
+
+  const activeJobList = allJobs.filter(j => j.status !== "Fully Paid / Closed");
 
   return (
     <AppShell>
@@ -44,7 +70,7 @@ export default function DashboardPage() {
         <div className="stat-card">
           <div className="stat-label">Pipeline revenue</div>
           <div className="stat-value">{formatCurrency(totalRevenue)}</div>
-          <div className="stat-detail">Current visible jobs</div>
+          <div className="stat-detail">{allJobs.length} total jobs</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Active jobs</div>
@@ -70,14 +96,7 @@ export default function DashboardPage() {
           Pipeline stages
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[
-            { label: "Scheduled",            bg: "#dbeafe", color: "#1e3a8a" },
-            { label: "Install Complete",     bg: "#d8f3dc", color: "#1b4332" },
-            { label: "Inspection Scheduled", bg: "#dbeafe", color: "#1e3a8a" },
-            { label: "Inspection Passed",    bg: "#d8f3dc", color: "#1b4332" },
-            { label: "Fully Paid / Closed",  bg: "#1a1917", color: "#ffffff" },
-            { label: "Rescheduled / Issue",  bg: "#fee2e2", color: "#7f1d1d" },
-          ].map(({ label, bg, color }) => (
+          {PIPELINE_STAGES.map(({ label, bg, color }) => (
             <Link key={label} href="/jobs" style={{ textDecoration: "none" }}>
               <div style={{
                 background: bg, color, borderRadius: 20,
@@ -105,27 +124,22 @@ export default function DashboardPage() {
             {overdueInvoices.map(inv => (
               <Link key={inv.id} href="/invoices" style={{ textDecoration: "none" }}>
                 <div style={{
-                  background: "var(--red-bg)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "10px 12px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  cursor: "pointer",
+                  background: "var(--red-bg)", borderRadius: "var(--radius-md)",
+                  padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center",
                 }}>
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>Overdue invoice — {inv.customer}</div>
                     <div style={{ fontSize: 12, color: "var(--red)" }}>{inv.id} · {inv.type} · {formatCurrency(inv.amount)}</div>
                   </div>
-                  <span className={`badge badge-red`}>Overdue</span>
+                  <span className="badge badge-red">Overdue</span>
                 </div>
               </Link>
             ))}
-            {issueJobs.map(job => (
+            {issueJobs.slice(0, 5).map(job => (
               <Link key={job.id} href={`/jobs/${job.id}`} style={{ textDecoration: "none" }}>
                 <div style={{
-                  background: "var(--red-bg)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "10px 12px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: "var(--red-bg)", borderRadius: "var(--radius-md)",
+                  padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center",
                 }}>
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>Rescheduled / issue — {job.customer}</div>
@@ -135,13 +149,16 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
+            {issueJobs.length > 5 && (
+              <Link href="/jobs" style={{ fontSize: 12, color: "var(--red)", textDecoration: "none" }}>
+                +{issueJobs.length - 5} more issue jobs →
+              </Link>
+            )}
             {highServiceItems.map(item => (
               <Link key={item.id} href="/service" style={{ textDecoration: "none" }}>
                 <div style={{
-                  background: "var(--red-bg)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "10px 12px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: "var(--red-bg)", borderRadius: "var(--radius-md)",
+                  padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center",
                 }}>
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>High urgency — {item.issue}</div>
@@ -170,10 +187,8 @@ export default function DashboardPage() {
             {upcomingSchedule.map(item => (
               <Link key={item.id} href="/scheduling" style={{ textDecoration: "none" }}>
                 <div style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "10px 12px",
-                  display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                  border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
+                  padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "flex-start",
                 }}>
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{item.customer}</div>
@@ -195,6 +210,7 @@ export default function DashboardPage() {
           <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 7 }}>
             <ClipboardList size={14} />
             Active job pipeline
+            <span style={{ fontWeight: 400, color: "var(--text-secondary)", fontSize: 12 }}>({activeJobList.length})</span>
           </div>
           <Link href="/jobs" style={{ fontSize: 12, color: "var(--text-secondary)", textDecoration: "none" }}>View all →</Link>
         </div>
@@ -212,7 +228,7 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {jobs.filter(j => j.status !== "Fully Paid / Closed").map(job => {
+              {activeJobList.slice(0, 50).map(job => {
                 const stage = STAGE_MAP[job.status] || 0;
                 const isIssue = job.status === "Rescheduled / Issue";
                 return (
@@ -222,7 +238,7 @@ export default function DashboardPage() {
                       {job.customer}
                     </td>
                     <td><span className="mono badge badge-slate">{job.id}</span></td>
-                    <td style={{ color: "var(--text-secondary)" }}>{job.city}, {job.state}</td>
+                    <td style={{ color: "var(--text-secondary)" }}>{job.city}{job.state ? `, ${job.state}` : ""}</td>
                     <td><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span></td>
                     <td style={{ minWidth: 120 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -233,10 +249,19 @@ export default function DashboardPage() {
                       </div>
                     </td>
                     <td style={{ color: isIssue ? "#dc2626" : "var(--text-secondary)", maxWidth: 180 }}>{job.nextAction}</td>
-                    <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount)}</td>
+                    <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount || job.installCost)}</td>
                   </tr>
                 );
               })}
+              {activeJobList.length > 50 && (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "12px", color: "var(--text-secondary)", fontSize: 13 }}>
+                    <Link href="/jobs" style={{ color: "var(--text-secondary)" }}>
+                      +{activeJobList.length - 50} more jobs — view all →
+                    </Link>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
