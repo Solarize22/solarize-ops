@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
@@ -9,7 +10,6 @@ import {
   DollarSign,
   FileText,
   Home,
-  SunMedium,
   Wrench,
   Upload,
 } from "lucide-react";
@@ -44,24 +44,15 @@ export default function AppShell({ children }) {
         overflowY: "auto",
       }}>
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 10px 18px" }}>
-          <div style={{
-            width: 34, height: 34,
-            background: "var(--text-primary)",
-            borderRadius: "10px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            <SunMedium size={17} color="white" />
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, letterSpacing: "-0.01em", lineHeight: 1.2 }}>
-              Solarize Home Energy
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 1 }}>
-              Operations
-            </div>
-          </div>
+        <div style={{ padding: "6px 10px 18px" }}>
+          <Image
+            src="/logo.jpg"
+            alt="Solarize Home Energy"
+            width={180}
+            height={72}
+            style={{ objectFit: "contain", width: "100%", height: "auto" }}
+            priority
+          />
         </div>
 
         {/* Nav */}
