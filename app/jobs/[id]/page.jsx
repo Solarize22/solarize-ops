@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
@@ -121,21 +121,32 @@ function Milestone({ icon, title, subtitle, date, done, failed, picker, onAdd, c
 
 export default function JobDetailPage() {
   const { id } = useParams();
-
-  let allJobs = [...jobs];
-  if (typeof window !== "undefined") {
-    try {
-      const imported = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
-      imported.forEach(j => { if (!allJobs.find(x => x.id === j.id)) allJobs.push(j); });
-    } catch(e) {}
-  }
-
-  const originalJob = allJobs.find(j => j.id === id);
-  const [job, setJob] = useState(originalJob ? { ...originalJob } : null);
+  const [job, setJob] = useState(null);
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [openPicker, setOpenPicker] = useState(null);
   const [pickerDate, setPickerDate] = useState("");
+  const [payConfirm, setPayConfirm] = useState(null); // { type: "m1"|"m2" }
+  const [loading, setLoading] = useState(true);
+  const savedSnapshot = useRef(null);
+
+  useEffect(() => {
+    const staticJob = jobs.find(j => j.id === id);
+    if (staticJob) { savedSnapshot.current = { ...staticJob }; setJob({ ...staticJob }); setLoading(false); return; }
+    fetch("/api/jobs")
+      .then(r => r.json())
+      .then(imported => {
+        const found = imported.find(j => j.id === id);
+        if (found) { savedSnapshot.current = { ...found }; setJob({ ...found }); }
+        else setJob(null);
+      })
+      .catch(() => setJob(null))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) {
+    return <AppShell><div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-secondary)" }}>Loading...</div></AppShell>;
+  }
 
   if (!job) {
     return (
@@ -154,20 +165,34 @@ export default function JobDetailPage() {
   }
 
   function handleSave() {
-    if (originalJob) Object.assign(originalJob, job);
+    fetch("/api/jobs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: job.id, updates: job }),
+    }).catch(() => {});
+    savedSnapshot.current = { ...job };
     setEditing(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
   function handleCancel() {
-    setJob({ ...originalJob });
+    setJob({ ...savedSnapshot.current });
     setEditing(false);
   }
 
   function applyUpdate(updates) {
-    setJob(prev => ({ ...prev, ...updates }));
-    if (originalJob) Object.assign(originalJob, updates);
+    const stamped = { ...updates, lastUpdated: new Date().toISOString() };
+    setJob(prev => {
+      const next = { ...prev, ...stamped };
+      fetch("/api/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: next.id, updates: stamped }),
+      }).catch(() => {});
+      if (savedSnapshot.current) Object.assign(savedSnapshot.current, stamped);
+      return next;
+    });
     setOpenPicker(null);
     setPickerDate("");
   }
@@ -190,11 +215,32 @@ export default function JobDetailPage() {
   }
 
   function toggleM1Received() {
-    applyUpdate({ m1Received: !job.m1Received });
+    if (!job.m1Received) {
+      setPayConfirm({ type: "m1" });
+    } else {
+      applyUpdate({ m1Received: false });
+    }
   }
 
   function toggleM2Received() {
-    applyUpdate({ m2Received: !job.m2Received });
+    if (!job.m2Received) {
+      setPayConfirm({ type: "m2" });
+    } else {
+      applyUpdate({ m2Received: false });
+    }
+  }
+
+  function confirmPayment() {
+    const { type } = payConfirm;
+    const updates = { [type === "m1" ? "m1Received" : "m2Received"]: true };
+    const willClose =
+      (type === "m2" && job.m1Received) || (type === "m1" && job.m2Received);
+    if (willClose) {
+      updates.status = "Fully Paid / Closed";
+      updates.active = false;
+    }
+    applyUpdate(updates);
+    setPayConfirm(null);
   }
 
   const sc = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
@@ -228,8 +274,42 @@ export default function JobDetailPage() {
     );
   }
 
+  const willAutoClose =
+    payConfirm &&
+    ((payConfirm.type === "m2" && job.m1Received) ||
+     (payConfirm.type === "m1" && job.m2Received));
+
   return (
     <AppShell>
+      {/* Payment confirmation modal */}
+      {payConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="card" style={{ width: 380, padding: 28, borderRadius: "var(--radius-lg)" }}>
+            <h3 style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>
+              Confirm {payConfirm.type === "m1" ? "M1 (80%)" : "M2 (20%)"} received?
+            </h3>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: willAutoClose ? 10 : 20 }}>
+              {payConfirm.type === "m1" ? "Mark the 80% milestone payment" : "Mark the 20% final payment"}
+              {m1Amount && payConfirm.type === "m1" ? ` of ${new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(m1Amount)}` : ""}
+              {m2Amount && payConfirm.type === "m2" ? ` of ${new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(m2Amount)}` : ""}
+              {" "}as collected for <strong>{job.customer}</strong>.
+            </p>
+            {willAutoClose && (
+              <div style={{ background: "#fef3c7", border: "1px solid #fbbf24", borderRadius: "var(--radius-md)", padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "#92400e" }}>
+                ⚠️ Both M1 and M2 will be received — this job will automatically be marked <strong>Fully Paid / Closed</strong> and moved to <strong>Inactive</strong>.
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setPayConfirm(null)} style={{ padding: "8px 18px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-strong)", background: "var(--surface)", fontSize: 13, cursor: "pointer", fontFamily: "var(--font-body)" }}>
+                Cancel
+              </button>
+              <button onClick={confirmPayment} style={{ padding: "8px 18px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>
+                Yes, confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
@@ -530,6 +610,8 @@ export default function JobDetailPage() {
               <EditField label="Next action / notes for issue" name="nextAction" value={job.nextAction} onChange={handleChange} />
             </div>
             <EditField label="Invoice #" name="invoiceNumber" value={job.invoiceNumber} onChange={handleChange} />
+            <EditField label="Install date" name="installDate" value={job.installDate} onChange={handleChange} type="date" />
+            <EditField label="Inspection date" name="inspectionDate" value={job.inspectionDate} onChange={handleChange} type="date" />
           </>
         ) : (
           <>
@@ -542,6 +624,8 @@ export default function JobDetailPage() {
             <Field label="Permit status" value={job.permitStatus} />
             <Field label="Interconnection" value={job.interconnectionStatus} />
             <Field label="Invoice #" value={job.invoiceNumber} />
+            <Field label="Install date" value={job.installDate ? formatDate(job.installDate) : ""} />
+            <Field label="Inspection date" value={job.inspectionDate ? formatDate(job.inspectionDate) : ""} />
             <Field label="Next action" value={job.nextAction} />
           </>
         )}
