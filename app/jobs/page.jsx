@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { jobs as staticJobs } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 import { Search, ChevronRight, Plus, AlertTriangle } from "lucide-react";
+import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 
 const STATUSES = [
   "Scheduled",
@@ -64,16 +65,18 @@ export default function JobsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [stateFilter, setStateFilter] = useState("All");
+  const [period, setPeriod] = useState("All time");
 
   const filtered = useMemo(() => {
-    return jobs.filter(j => {
+    const byPeriod = filterByPeriod(jobs, period);
+    return byPeriod.filter(j => {
       const text = [j.customer, j.id, j.street, j.city, j.state, j.status].join(" ").toLowerCase();
       const matchSearch = text.includes(search.toLowerCase());
       const matchStatus = statusFilter === "All" || j.status === statusFilter;
       const matchState = stateFilter === "All" || j.state === stateFilter;
       return matchSearch && matchStatus && matchState;
     });
-  }, [jobs, search, statusFilter, stateFilter]);
+  }, [jobs, search, statusFilter, stateFilter, period]);
 
   function updateStatus(jobId, newStatus) {
     setJobs(prev => prev.map(j => {
@@ -86,20 +89,23 @@ export default function JobsPage() {
   }
 
   const counts = {};
-  STATUSES.forEach(s => { counts[s] = jobs.filter(j => j.status === s).length; });
+  STATUSES.forEach(s => { counts[s] = filtered.filter(j => j.status === s).length; });
 
   return (
     <AppShell>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <h1>Jobs</h1>
           <p>Click a job to open · update status inline</p>
         </div>
-        <Link href="/jobs/new">
-          <button className="btn btn-primary" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Plus size={13} /> New job
-          </button>
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <PeriodFilter value={period} onChange={setPeriod} />
+          <Link href="/jobs/new">
+            <button className="btn btn-primary" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Plus size={13} /> New job
+            </button>
+          </Link>
+        </div>
       </div>
 
       {/* Status chips */}
