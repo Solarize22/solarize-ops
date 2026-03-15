@@ -196,8 +196,10 @@ export default function ImportPage() {
   const fileRef = useRef();
 
   useEffect(() => {
-    const stored = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
-    setSessionJobCount(stored.length);
+    fetch("/api/jobs")
+      .then(r => r.json())
+      .then(data => setSessionJobCount(Array.isArray(data) ? data.length : 0))
+      .catch(() => {});
   }, [step]);
 
   function processFile(file) {
@@ -230,15 +232,14 @@ export default function ImportPage() {
     processFile(e.dataTransfer.files[0]);
   }
 
-  function handleImport() {
-    const existing = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
-    const merged = [...existing];
-    let added = 0;
-    jobs.forEach(job => {
-      if (!merged.find(j => j.id === job.id)) { merged.push(job); added++; }
+  async function handleImport() {
+    const res = await fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(jobs),
     });
-    sessionStorage.setItem("importedJobs", JSON.stringify(merged));
-    setImportedCount(added);
+    const data = await res.json();
+    setImportedCount(data.added ?? jobs.length);
     setStep("done");
   }
 
@@ -283,17 +284,24 @@ export default function ImportPage() {
     setStep("upload"); setJobs([]); setErrors([]); setFileName("");
   }
 
-  function undoLastImport() {
-    const existing = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
+  async function undoLastImport() {
+    const existing = await fetch("/api/jobs").then(r => r.json());
     const importedIds = new Set(jobs.map(j => j.id));
     const remaining = existing.filter(j => !importedIds.has(j.id));
-    sessionStorage.setItem("importedJobs", JSON.stringify(remaining));
+    await fetch("/api/jobs", { method: "DELETE" });
+    if (remaining.length > 0) {
+      await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(remaining),
+      });
+    }
     setSessionJobCount(remaining.length);
     reset();
   }
 
-  function clearAllImported() {
-    sessionStorage.removeItem("importedJobs");
+  async function clearAllImported() {
+    await fetch("/api/jobs", { method: "DELETE" });
     setSessionJobCount(0);
   }
 

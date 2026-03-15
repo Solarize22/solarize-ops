@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { jobs as staticJobs } from "@/lib/data";
@@ -45,16 +45,21 @@ function m2Due(job) {
 const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI"];
 
 export default function JobsPage() {
-  const [jobs, setJobs] = useState(() => {
-    let all = [...staticJobs];
-    if (typeof window !== "undefined") {
-      try {
-        const imported = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
-        imported.forEach(j => { if (!all.find(x => x.id === j.id)) all.push(j); });
-      } catch(e) {}
-    }
-    return all;
-  });
+  const [jobs, setJobs] = useState(staticJobs);
+
+  useEffect(() => {
+    fetch("/api/jobs")
+      .then(r => r.json())
+      .then(imported => {
+        if (imported.length > 0) {
+          setJobs(prev => {
+            const ids = new Set(prev.map(j => j.id));
+            return [...prev, ...imported.filter(j => !ids.has(j.id))];
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
