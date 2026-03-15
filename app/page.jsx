@@ -7,14 +7,30 @@ import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import { AlertTriangle, CheckCircle2, DollarSign, ClipboardList, Wrench, FileText, CalendarDays } from "lucide-react";
 
 export default function DashboardPage() {
-  const totalRevenue = jobs.reduce((s, j) => s + j.contractAmount, 0);
-  const activeJobs = jobs.filter(j => j.status !== "Inspection Passed").length;
+  const STAGE_MAP = {
+    "Scheduled":             20,
+    "Install Complete":      40,
+    "Inspection Scheduled":  60,
+    "Inspection Passed":     80,
+    "Fully Paid / Closed":   100,
+    "Rescheduled / Issue":   50,
+  };
+
+  const totalRevenue = jobs.reduce((s, j) => s + (j.contractAmount || 0), 0);
+  const activeJobs = jobs.filter(j => j.status !== "Fully Paid / Closed").length;
   const openService = serviceItems.filter(s => s.status !== "Resolved").length;
   const pendingPermits = permits.filter(p => p.status !== "Approved").length;
   const overdueInvoices = invoices.filter(i => i.status === "Overdue");
   const upcomingSchedule = scheduleItems.filter(s => s.status !== "Cancelled").slice(0, 3);
-  const ptoHolds = jobs.filter(j => j.status === "PTO Hold");
+  const issueJobs = jobs.filter(j => j.status === "Rescheduled / Issue");
   const highServiceItems = serviceItems.filter(s => s.urgency === "High" && s.status !== "Resolved");
+
+  const PIPELINE_STAGES = [
+    "Scheduled", "Install Complete", "Inspection Scheduled",
+    "Inspection Passed", "Fully Paid / Closed", "Rescheduled / Issue",
+  ];
+  const stageCounts = {};
+  PIPELINE_STAGES.forEach(s => { stageCounts[s] = jobs.filter(j => j.status === s).length; });
 
   return (
     <AppShell>
@@ -47,6 +63,36 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Pipeline stage summary */}
+      <div className="card" style={{ padding: "14px 20px", marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, display: "flex", alignItems: "center", gap: 7 }}>
+          <ClipboardList size={14} />
+          Pipeline stages
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { label: "Scheduled",            bg: "#dbeafe", color: "#1e3a8a" },
+            { label: "Install Complete",     bg: "#d8f3dc", color: "#1b4332" },
+            { label: "Inspection Scheduled", bg: "#dbeafe", color: "#1e3a8a" },
+            { label: "Inspection Passed",    bg: "#d8f3dc", color: "#1b4332" },
+            { label: "Fully Paid / Closed",  bg: "#1a1917", color: "#ffffff" },
+            { label: "Rescheduled / Issue",  bg: "#fee2e2", color: "#7f1d1d" },
+          ].map(({ label, bg, color }) => (
+            <Link key={label} href="/jobs" style={{ textDecoration: "none" }}>
+              <div style={{
+                background: bg, color, borderRadius: 20,
+                padding: "5px 14px", fontSize: 12, fontWeight: 500,
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                {label === "Rescheduled / Issue" && <AlertTriangle size={10} />}
+                {label}
+                <span style={{ fontWeight: 700 }}>{stageCounts[label]}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: 16, alignItems: "flex-start" }}>
 
         {/* Alerts */}
@@ -73,19 +119,19 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
-            {ptoHolds.map(job => (
-              <Link key={job.id} href="/jobs" style={{ textDecoration: "none" }}>
+            {issueJobs.map(job => (
+              <Link key={job.id} href={`/jobs/${job.id}`} style={{ textDecoration: "none" }}>
                 <div style={{
-                  background: "var(--amber-bg)",
+                  background: "var(--red-bg)",
                   borderRadius: "var(--radius-md)",
                   padding: "10px 12px",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                 }}>
                   <div>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: "var(--amber-text)" }}>PTO hold — {job.customer}</div>
-                    <div style={{ fontSize: 12, color: "var(--amber)" }}>{job.id} · {job.nextAction}</div>
+                    <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>Rescheduled / issue — {job.customer}</div>
+                    <div style={{ fontSize: 12, color: "var(--red)" }}>{job.id} · {job.nextAction || "Needs attention"}</div>
                   </div>
-                  <span className="badge badge-amber">PTO Hold</span>
+                  <span className="badge badge-red">Issue</span>
                 </div>
               </Link>
             ))}
@@ -105,7 +151,7 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
-            {overdueInvoices.length === 0 && ptoHolds.length === 0 && highServiceItems.length === 0 && (
+            {overdueInvoices.length === 0 && issueJobs.length === 0 && highServiceItems.length === 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--green)", fontSize: 13, padding: "8px 0" }}>
                 <CheckCircle2 size={15} />
                 No blockers right now — great shape.
@@ -166,24 +212,31 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map(job => (
-                <tr key={job.id}>
-                  <td style={{ fontWeight: 500 }}>{job.customer}</td>
-                  <td><span className="mono badge badge-slate">{job.id}</span></td>
-                  <td style={{ color: "var(--text-secondary)" }}>{job.city}, {job.state}</td>
-                  <td><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span></td>
-                  <td style={{ minWidth: 120 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div className="progress-bar" style={{ flex: 1 }}>
-                        <div className="progress-fill" style={{ width: `${job.stage}%` }} />
+              {jobs.filter(j => j.status !== "Fully Paid / Closed").map(job => {
+                const stage = STAGE_MAP[job.status] || 0;
+                const isIssue = job.status === "Rescheduled / Issue";
+                return (
+                  <tr key={job.id} style={isIssue ? { background: "#fff8f8" } : undefined}>
+                    <td style={{ fontWeight: 500 }}>
+                      {isIssue && <AlertTriangle size={11} style={{ color: "#dc2626", marginRight: 4, verticalAlign: "middle" }} />}
+                      {job.customer}
+                    </td>
+                    <td><span className="mono badge badge-slate">{job.id}</span></td>
+                    <td style={{ color: "var(--text-secondary)" }}>{job.city}, {job.state}</td>
+                    <td><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span></td>
+                    <td style={{ minWidth: 120 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div className="progress-bar" style={{ flex: 1 }}>
+                          <div className="progress-fill" style={{ width: `${stage}%`, background: isIssue ? "#dc2626" : undefined }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 28 }}>{stage}%</span>
                       </div>
-                      <span style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 28 }}>{job.stage}%</span>
-                    </div>
-                  </td>
-                  <td style={{ color: "var(--text-secondary)", maxWidth: 180 }}>{job.nextAction}</td>
-                  <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount)}</td>
-                </tr>
-              ))}
+                    </td>
+                    <td style={{ color: isIssue ? "#dc2626" : "var(--text-secondary)", maxWidth: 180 }}>{job.nextAction}</td>
+                    <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
