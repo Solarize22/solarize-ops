@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { jobs as staticJobs } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 import { Search, ChevronRight, Plus, AlertTriangle } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
@@ -56,19 +55,12 @@ function cardDate(job) {
 }
 
 export default function JobsPage() {
-  const [jobs, setJobs] = useState(staticJobs);
+  const [jobs, setJobs] = useState([]);
 
   useEffect(() => {
     fetch("/api/jobs")
       .then(r => r.json())
-      .then(imported => {
-        if (imported.length > 0) {
-          setJobs(prev => {
-            const ids = new Set(prev.map(j => j.id));
-            return [...prev, ...imported.filter(j => !ids.has(j.id))];
-          });
-        }
-      })
+      .then(data => { if (Array.isArray(data)) setJobs(data); })
       .catch(() => {});
   }, []);
 
@@ -137,13 +129,15 @@ export default function JobsPage() {
   }
 
   function updateStatus(jobId, newStatus) {
-    setJobs(prev => prev.map(j => {
-      if (j.id !== jobId) return j;
-      const updates = { status: newStatus, lastUpdated: new Date().toISOString() };
-      if (newStatus === "Install Complete") updates.m1Due = true;
-      if (newStatus === "Inspection Passed") { updates.m1Due = true; updates.m2Due = true; }
-      return { ...j, ...updates };
-    }));
+    const updates = { status: newStatus, lastUpdated: new Date().toISOString() };
+    if (newStatus === "Install Complete") updates.m1Due = true;
+    if (newStatus === "Inspection Passed") { updates.m1Due = true; updates.m2Due = true; }
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...updates } : j));
+    fetch("/api/jobs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: jobId, updates }),
+    }).catch(() => {});
   }
 
   const counts = {};

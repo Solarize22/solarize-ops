@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import Link from "next/link";
-import { jobs as staticJobs, invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
+import { invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import { AlertTriangle, CheckCircle2, ClipboardList, CalendarDays, Eye, EyeOff } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
@@ -27,7 +27,7 @@ const PIPELINE_STAGES = [
 ];
 
 export default function DashboardPage() {
-  const [allJobs, setAllJobs] = useState(staticJobs);
+  const [allJobs, setAllJobs] = useState([]);
   const [period, setPeriod] = useState("All time");
   const [hidden, setHidden] = useState(false);
   const mask = v => hidden ? "••••" : v;
@@ -35,14 +35,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch("/api/jobs")
       .then(r => r.json())
-      .then(imported => {
-        if (imported.length > 0) {
-          setAllJobs(prev => {
-            const ids = new Set(prev.map(j => j.id));
-            return [...prev, ...imported.filter(j => !ids.has(j.id))];
-          });
-        }
-      })
+      .then(data => { if (Array.isArray(data)) setAllJobs(data); })
       .catch(() => {});
   }, []);
 
