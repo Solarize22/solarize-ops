@@ -177,7 +177,7 @@ function mapToJob(row, index) {
     m2Received,
     adders,
     installDate: get("install_date", "due_date") || "",
-    inspectionDate: get("inspection_date") || "",
+    inspectionDate: get("inspection_date", "inspection") || "",
     nextAction: get("next_action", "remaining_work") || "",
     notes: [get("notes"), get("additional_notes")].filter(Boolean).join(" ").trim(),
     createdAt: new Date().toISOString().split("T")[0],

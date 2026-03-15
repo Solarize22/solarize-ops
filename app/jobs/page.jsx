@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { jobs as staticJobs } from "@/lib/data";
@@ -45,6 +45,16 @@ function m2Due(job) {
 
 const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI"];
 
+function cardDate(job) {
+  const candidates = [job.lastUpdated, job.inspectionDate, job.installDate]
+    .filter(Boolean)
+    .map(d => new Date(d))
+    .filter(d => !isNaN(d));
+  if (!candidates.length) return null;
+  const latest = new Date(Math.max(...candidates));
+  return latest.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState(staticJobs);
 
@@ -66,6 +76,21 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [stateFilter, setStateFilter] = useState("All");
   const [period, setPeriod] = useState("All time");
+  const [activeFilter, setActiveFilter] = useState("Active");
+  const [sort, setSort] = useState({ col: "date", dir: "desc" });
+  const [columns, setColumns] = useState([
+    { key: "customer", label: "Customer" },
+    { key: "id",       label: "Job #" },
+    { key: "status",   label: "Status" },
+    { key: "location", label: "Location" },
+    { key: "system",   label: "System" },
+    { key: "crew",     label: "Crew" },
+    { key: "rep",      label: "Rep" },
+    { key: "m1m2",     label: "M1 / M2", noSort: true },
+    { key: "date",     label: "Date" },
+    { key: "next",     label: "Next action", noSort: true },
+  ]);
+  const dragCol = useRef(null);
 
   const filtered = useMemo(() => {
     const byPeriod = filterByPeriod(jobs, period);
@@ -74,14 +99,47 @@ export default function JobsPage() {
       const matchSearch = text.includes(search.toLowerCase());
       const matchStatus = statusFilter === "All" || j.status === statusFilter;
       const matchState = stateFilter === "All" || j.state === stateFilter;
-      return matchSearch && matchStatus && matchState;
+      const bothPaid = j.m1Received && j.m2Received;
+      const isActive = j.active !== false && j.status !== "Fully Paid / Closed" && !bothPaid;
+      const matchActive =
+        activeFilter === "All" ||
+        (activeFilter === "Active" && isActive) ||
+        (activeFilter === "Inactive" && !isActive);
+      return matchSearch && matchStatus && matchState && matchActive;
     });
-  }, [jobs, search, statusFilter, stateFilter, period]);
+  }, [jobs, search, statusFilter, stateFilter, period, activeFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const { col, dir } = sort;
+    arr.sort((a, b) => {
+      let av, bv;
+      if (col === "customer") { av = a.customer || ""; bv = b.customer || ""; }
+      else if (col === "id") { av = a.id || ""; bv = b.id || ""; }
+      else if (col === "status") { av = a.status || ""; bv = b.status || ""; }
+      else if (col === "location") { av = (a.state || "") + (a.city || ""); bv = (b.state || "") + (b.city || ""); }
+      else if (col === "system") { av = parseFloat(a.systemSize) || 0; bv = parseFloat(b.systemSize) || 0; return dir === "asc" ? av - bv : bv - av; }
+      else if (col === "crew") { av = (a.crew || []).join(""); bv = (b.crew || []).join(""); }
+      else if (col === "rep") { av = a.rep || ""; bv = b.rep || ""; }
+      else if (col === "date") {
+        av = new Date(Math.max(...[a.lastUpdated, a.inspectionDate, a.installDate].filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n)), 0));
+        bv = new Date(Math.max(...[b.lastUpdated, b.inspectionDate, b.installDate].filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n)), 0));
+        return dir === "asc" ? av - bv : bv - av;
+      }
+      else { av = ""; bv = ""; }
+      return dir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    return arr;
+  }, [filtered, sort]);
+
+  function toggleSort(col) {
+    setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  }
 
   function updateStatus(jobId, newStatus) {
     setJobs(prev => prev.map(j => {
       if (j.id !== jobId) return j;
-      const updates = { status: newStatus };
+      const updates = { status: newStatus, lastUpdated: new Date().toISOString() };
       if (newStatus === "Install Complete") updates.m1Due = true;
       if (newStatus === "Inspection Passed") { updates.m1Due = true; updates.m2Due = true; }
       return { ...j, ...updates };
@@ -106,6 +164,28 @@ export default function JobsPage() {
             </button>
           </Link>
         </div>
+      </div>
+
+      {/* Active / Inactive toggle */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {["Active", "Inactive", "All"].map(f => {
+          const count = f === "All" ? jobs.length : jobs.filter(j => {
+            const bothPaid = j.m1Received && j.m2Received;
+            const active = j.active !== false && j.status !== "Fully Paid / Closed" && !bothPaid;
+            return f === "Active" ? active : !active;
+          }).length;
+          return (
+            <button key={f} onClick={() => setActiveFilter(f)} style={{
+              padding: "5px 14px", borderRadius: 20, fontSize: 12, cursor: "pointer", fontFamily: "var(--font-body)",
+              border: activeFilter === f ? "none" : "0.5px solid var(--border)",
+              background: activeFilter === f ? (f === "Inactive" ? "#6b7280" : "var(--text-primary)") : "var(--surface)",
+              color: activeFilter === f ? "white" : "var(--text-secondary)",
+              fontWeight: activeFilter === f ? 600 : 400,
+            }}>
+              {f} <span style={{ opacity: 0.7 }}>({count})</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Status chips */}
@@ -166,114 +246,142 @@ export default function JobsPage() {
         </span>
       </div>
 
-      {/* Job cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {filtered.length === 0 && (
-          <div className="card empty-state">No jobs match your filters.</div>
+      {/* Jobs table */}
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {sorted.length === 0 ? (
+          <div className="empty-state" style={{ padding: 40 }}>No jobs match your filters.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+                  {columns.map(({ key, label, noSort }, idx) => (
+                    <th
+                      key={key}
+                      draggable
+                      onDragStart={() => { dragCol.current = idx; }}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={() => {
+                        const from = dragCol.current;
+                        if (from === null || from === idx) return;
+                        setColumns(prev => {
+                          const next = [...prev];
+                          const [moved] = next.splice(from, 1);
+                          next.splice(idx, 0, moved);
+                          return next;
+                        });
+                        dragCol.current = null;
+                      }}
+                      onClick={noSort ? undefined : () => toggleSort(key)}
+                      style={{
+                        padding: "9px 12px", textAlign: "left", fontWeight: 600,
+                        fontSize: 11, color: "var(--text-secondary)", letterSpacing: ".04em",
+                        textTransform: "uppercase", whiteSpace: "nowrap",
+                        cursor: "grab", userSelect: "none",
+                      }}
+                    >
+                      <span style={{ cursor: noSort ? "grab" : "pointer" }} onClick={noSort ? undefined : e => { e.stopPropagation(); toggleSort(key); }}>
+                        {label}
+                        {!noSort && sort.col === key && (
+                          <span style={{ marginLeft: 4 }}>{sort.dir === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </span>
+                    </th>
+                  ))}
+                  <th style={{ width: 32 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((job, i) => {
+                  const sc = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
+                  const isIssue = job.status === "Rescheduled / Issue";
+                  const m1 = m1Due(job);
+                  const m2 = m2Due(job);
+                  const date = cardDate(job);
+                  return (
+                    <tr
+                      key={job.id}
+                      onClick={() => window.location.href = `/jobs/${job.id}`}
+                      style={{
+                        borderBottom: "0.5px solid var(--border)",
+                        background: isIssue ? "#fff8f8" : i % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
+                        cursor: "pointer",
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--hover)"}
+                      onMouseLeave={e => e.currentTarget.style.background = isIssue ? "#fff8f8" : i % 2 === 0 ? "var(--surface)" : "var(--surface-2)"}
+                    >
+                      {columns.map(({ key }, colIdx) => {
+                        if (key === "customer") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {isIssue && <AlertTriangle size={11} style={{ color: "#dc2626", flexShrink: 0 }} />}
+                              {job.customer}
+                              {job.battery && <span className="badge badge-blue" style={{ fontSize: 9 }}>Battery</span>}
+                            </div>
+                          </td>
+                        );
+                        if (key === "id") return (
+                          <td key={colIdx} style={{ padding: "10px 12px" }}>
+                            <span className="mono badge badge-slate" style={{ fontSize: 10 }}>{job.id}</span>
+                          </td>
+                        );
+                        if (key === "status") return (
+                          <td key={colIdx} style={{ padding: "10px 12px" }} onClick={e => e.stopPropagation()}>
+                            <select value={job.status} onChange={e => updateStatus(job.id, e.target.value)} style={{ padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, border: `0.5px solid ${sc.color}55`, background: sc.bg, color: sc.color, cursor: "pointer", fontFamily: "var(--font-body)" }}>
+                              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </td>
+                        );
+                        if (key === "location") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                            <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{job.state} · {job.city}</div>
+                            <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{job.street}</div>
+                          </td>
+                        );
+                        if (key === "system") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                            {job.panelCount > 0 ? `${job.panelCount} panels` : "—"}
+                            {job.systemSize ? <span style={{ color: "var(--text-tertiary)" }}> · {job.systemSize} kW</span> : ""}
+                          </td>
+                        );
+                        if (key === "crew") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                            {job.crew?.length > 0 ? job.crew.join(", ") : "—"}
+                          </td>
+                        );
+                        if (key === "rep") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{job.rep || "—"}</td>
+                        );
+                        if (key === "m1m2") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              {m1 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m1Received ? "#d8f3dc" : "#fef3c7", color: job.m1Received ? "#1b4332" : "#78350f" }}>M1 {job.m1Received ? "✓" : "due"}</span>}
+                              {m2 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m2Received ? "#d8f3dc" : "#fef3c7", color: job.m2Received ? "#1b4332" : "#78350f" }}>M2 {job.m2Received ? "✓" : "due"}</span>}
+                              {!m1 && !m2 && <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                            </div>
+                          </td>
+                        );
+                        if (key === "date") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{date || "—"}</td>
+                        );
+                        if (key === "next") return (
+                          <td key={colIdx} style={{ padding: "10px 12px", color: isIssue ? "#dc2626" : "var(--text-secondary)", maxWidth: 200 }}>
+                            {job.nextAction ? `→ ${job.nextAction}` : "—"}
+                          </td>
+                        );
+                        return null;
+                      })}
+                      <td style={{ padding: "10px 12px" }}>
+                        <ChevronRight size={14} style={{ color: "var(--text-tertiary)" }} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-        {filtered.map(job => {
-          const sc = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
-          const stage = STAGE_MAP[job.status] || 0;
-          const isIssue = job.status === "Rescheduled / Issue";
-          const m1 = m1Due(job);
-          const m2 = m2Due(job);
-
-          return (
-            <div
-              key={job.id}
-              className="card"
-              style={{
-                padding: "14px 18px",
-                borderColor: isIssue ? "#fca5a5" : undefined,
-                background: isIssue ? "#fff8f8" : undefined,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
-                {/* Left */}
-                <Link href={`/jobs/${job.id}`} style={{ textDecoration: "none", flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
-                    {isIssue && <AlertTriangle size={13} style={{ color: "#dc2626", flexShrink: 0 }} />}
-                    <span style={{ fontWeight: 600, fontSize: 15, color: "var(--text-primary)" }}>{job.customer}</span>
-                    <span className="mono badge badge-slate">{job.id}</span>
-                    {job.battery && <span className="badge badge-blue">Battery</span>}
-                    {/* M1/M2 payment badges */}
-                    {m1 && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
-                        background: job.m1Received ? "#d8f3dc" : "#fef3c7",
-                        color: job.m1Received ? "#1b4332" : "#78350f",
-                        letterSpacing: "0.03em",
-                      }}>
-                        M1 {job.m1Received ? "✓" : "due"}
-                      </span>
-                    )}
-                    {m2 && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
-                        background: job.m2Received ? "#d8f3dc" : "#fef3c7",
-                        color: job.m2Received ? "#1b4332" : "#78350f",
-                        letterSpacing: "0.03em",
-                      }}>
-                        M2 {job.m2Received ? "✓" : "due"}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    <span>{job.state} · {job.street}, {job.city}</span>
-                    {job.panelCount > 0 && <span>{job.panelCount} panels · {job.systemSize} kW</span>}
-                    {job.crew?.length > 0 && <span>Crew: {job.crew.join(", ")}</span>}
-                  </div>
-                </Link>
-
-                {/* Right — progress + status dropdown */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                  <div style={{ minWidth: 100 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-tertiary)", marginBottom: 4 }}>
-                      <span>Progress</span><span>{stage}%</span>
-                    </div>
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${stage}%`, background: isIssue ? "#dc2626" : undefined }} />
-                    </div>
-                  </div>
-
-                  <select
-                    value={job.status}
-                    onChange={e => { e.stopPropagation(); updateStatus(job.id, e.target.value); }}
-                    style={{
-                      padding: "5px 10px",
-                      borderRadius: 20,
-                      border: `0.5px solid ${sc.color}55`,
-                      background: sc.bg,
-                      color: sc.color,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                      fontFamily: "var(--font-body)",
-                      minWidth: 140,
-                    }}
-                  >
-                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-
-                  <Link href={`/jobs/${job.id}`}>
-                    <ChevronRight size={16} style={{ color: "var(--text-tertiary)" }} />
-                  </Link>
-                </div>
-              </div>
-
-              {job.nextAction && (
-                <div style={{
-                  marginTop: 8, fontSize: 12, color: isIssue ? "#dc2626" : "var(--text-secondary)",
-                  background: isIssue ? "#fee2e2" : "var(--surface-2)", borderRadius: "var(--radius-sm)",
-                  padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 5,
-                }}>
-                  {isIssue && <AlertTriangle size={11} />}
-                  → {job.nextAction}
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
     </AppShell>
   );
