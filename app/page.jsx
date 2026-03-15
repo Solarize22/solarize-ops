@@ -6,6 +6,7 @@ import Link from "next/link";
 import { jobs as staticJobs, invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import { AlertTriangle, CheckCircle2, ClipboardList, CalendarDays } from "lucide-react";
+import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 
 const STAGE_MAP = {
   "Scheduled":             20,
@@ -27,6 +28,7 @@ const PIPELINE_STAGES = [
 
 export default function DashboardPage() {
   const [allJobs, setAllJobs] = useState(staticJobs);
+  const [period, setPeriod] = useState("All time");
 
   useEffect(() => {
     fetch("/api/jobs")
@@ -42,27 +44,32 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  const totalRevenue    = allJobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
-  const activeJobs      = allJobs.filter(j => j.status !== "Fully Paid / Closed").length;
+  const jobs = filterByPeriod(allJobs, period);
+
+  const totalRevenue    = jobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
+  const activeJobs      = jobs.filter(j => j.status !== "Fully Paid / Closed").length;
   const openService     = serviceItems.filter(s => s.status !== "Resolved").length;
   const pendingPermits  = permits.filter(p => p.status !== "Approved").length;
   const overdueInvoices = invoices.filter(i => i.status === "Overdue");
   const upcomingSchedule = scheduleItems.filter(s => s.status !== "Cancelled").slice(0, 3);
-  const issueJobs       = allJobs.filter(j => j.status === "Rescheduled / Issue");
+  const issueJobs       = jobs.filter(j => j.status === "Rescheduled / Issue");
   const highServiceItems = serviceItems.filter(s => s.urgency === "High" && s.status !== "Resolved");
 
   const stageCounts = {};
   PIPELINE_STAGES.forEach(({ label }) => {
-    stageCounts[label] = allJobs.filter(j => j.status === label).length;
+    stageCounts[label] = jobs.filter(j => j.status === label).length;
   });
 
-  const activeJobList = allJobs.filter(j => j.status !== "Fully Paid / Closed");
+  const activeJobList = jobs.filter(j => j.status !== "Fully Paid / Closed");
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Operations dashboard</h1>
-        <p>Built around the way your solar company actually runs.</p>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1>Operations dashboard</h1>
+          <p>Built around the way your solar company actually runs.</p>
+        </div>
+        <PeriodFilter value={period} onChange={setPeriod} />
       </div>
 
       {/* Stat cards */}
