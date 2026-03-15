@@ -5,7 +5,7 @@ import AppShell from "@/components/AppShell";
 import Link from "next/link";
 import { jobs as staticJobs, invoices, serviceItems, permits, scheduleItems } from "@/lib/data";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
-import { AlertTriangle, CheckCircle2, ClipboardList, CalendarDays } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, CalendarDays, Eye, EyeOff } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 
 const STAGE_MAP = {
@@ -29,6 +29,8 @@ const PIPELINE_STAGES = [
 export default function DashboardPage() {
   const [allJobs, setAllJobs] = useState(staticJobs);
   const [period, setPeriod] = useState("All time");
+  const [hidden, setHidden] = useState(false);
+  const mask = v => hidden ? "••••" : v;
 
   useEffect(() => {
     fetch("/api/jobs")
@@ -72,24 +74,40 @@ export default function DashboardPage() {
           <h1>Operations dashboard</h1>
           <p>Built around the way your solar company actually runs.</p>
         </div>
-        <PeriodFilter value={period} onChange={setPeriod} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <PeriodFilter value={period} onChange={setPeriod} />
+          <button
+            onClick={() => setHidden(h => !h)}
+            title={hidden ? "Show numbers" : "Hide numbers"}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 32, height: 32, borderRadius: "50%",
+              border: "1px solid var(--border-strong)",
+              background: hidden ? "var(--text-primary)" : "transparent",
+              color: hidden ? "#fff" : "var(--text-secondary)",
+              cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
       </div>
 
       {/* Stat cards */}
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-label">Pipeline revenue</div>
-          <div className="stat-value">{formatCurrency(totalRevenue)}</div>
+          <div className="stat-value">{mask(formatCurrency(totalRevenue))}</div>
           {isFiltered
-            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{formatCurrency(totalRevenueAll)} all time</div>
+            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{mask(formatCurrency(totalRevenueAll))} all time</div>
             : <div className="stat-detail">{allJobs.length} total jobs</div>
           }
         </div>
         <div className="stat-card">
           <div className="stat-label">Active jobs</div>
-          <div className="stat-value">{activeJobs}</div>
+          <div className="stat-value">{mask(activeJobs)}</div>
           {isFiltered
-            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{activeJobsAll} all time</div>
+            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{mask(activeJobsAll)} all time</div>
             : <div className="stat-detail">Moving through ops</div>
           }
         </div>
@@ -265,7 +283,7 @@ export default function DashboardPage() {
                       </div>
                     </td>
                     <td style={{ color: isIssue ? "#dc2626" : "var(--text-secondary)", maxWidth: 180 }}>{job.nextAction}</td>
-                    <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount || job.installCost)}</td>
+                    <td style={{ fontWeight: 500 }}>{mask(formatCurrency(job.contractAmount || job.installCost))}</td>
                   </tr>
                 );
               })}
