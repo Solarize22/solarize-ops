@@ -2,13 +2,15 @@
 
 import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { permits } from "@/lib/data";
+import { useAllJobs, jobsToPermits } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 const STATUSES = ["All", "Approved", "Submitted", "In Review", "Utility Redesign Needed", "Not Submitted"];
 
 export default function PermitsPage() {
+  const allJobs = useAllJobs();
+  const permits = useMemo(() => jobsToPermits(allJobs), [allJobs]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 

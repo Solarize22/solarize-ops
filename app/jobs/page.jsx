@@ -5,43 +5,42 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { jobs as staticJobs } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
-import { Search, ChevronRight, Plus } from "lucide-react";
+import { Search, ChevronRight, Plus, AlertTriangle } from "lucide-react";
 
 const STATUSES = [
-  "Review",
   "Scheduled",
-  "In Progress",
   "Install Complete",
   "Inspection Scheduled",
   "Inspection Passed",
-  "Inspection Failed",
-  "Service Call",
-  "Site Visit",
+  "Fully Paid / Closed",
+  "Rescheduled / Issue",
 ];
 
 const STATUS_COLORS = {
-  "Review":               { bg: "#f1f5f9", color: "#334155" },
-  "Scheduled":            { bg: "#dbeafe", color: "#1e3a8a" },
-  "In Progress":          { bg: "#fef3c7", color: "#78350f" },
-  "Install Complete":     { bg: "#d8f3dc", color: "#1b4332" },
-  "Inspection Scheduled": { bg: "#dbeafe", color: "#1e3a8a" },
-  "Inspection Passed":    { bg: "#d8f3dc", color: "#1b4332" },
-  "Inspection Failed":    { bg: "#fee2e2", color: "#7f1d1d" },
-  "Service Call":         { bg: "#fee2e2", color: "#7f1d1d" },
-  "Site Visit":           { bg: "#fef3c7", color: "#78350f" },
+  "Scheduled":             { bg: "#dbeafe", color: "#1e3a8a" },
+  "Install Complete":      { bg: "#d8f3dc", color: "#1b4332" },
+  "Inspection Scheduled":  { bg: "#dbeafe", color: "#1e3a8a" },
+  "Inspection Passed":     { bg: "#d8f3dc", color: "#1b4332" },
+  "Fully Paid / Closed":   { bg: "#1a1917", color: "#ffffff" },
+  "Rescheduled / Issue":   { bg: "#fee2e2", color: "#7f1d1d" },
 };
 
 const STAGE_MAP = {
-  "Review": 10,
-  "Scheduled": 25,
-  "In Progress": 45,
-  "Install Complete": 60,
-  "Inspection Scheduled": 70,
-  "Inspection Passed": 90,
-  "Inspection Failed": 65,
-  "Service Call": 60,
-  "Site Visit": 15,
+  "Scheduled":             20,
+  "Install Complete":      40,
+  "Inspection Scheduled":  60,
+  "Inspection Passed":     80,
+  "Fully Paid / Closed":   100,
+  "Rescheduled / Issue":   50,
 };
+
+// M1 is due once install has been marked complete (at any point)
+function m1Due(job) {
+  return job.m1Due || ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
+}
+function m2Due(job) {
+  return job.m2Due || ["Inspection Passed","Fully Paid / Closed"].includes(job.status);
+}
 
 const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI"];
 
@@ -72,10 +71,15 @@ export default function JobsPage() {
   }, [jobs, search, statusFilter, stateFilter]);
 
   function updateStatus(jobId, newStatus) {
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
+    setJobs(prev => prev.map(j => {
+      if (j.id !== jobId) return j;
+      const updates = { status: newStatus };
+      if (newStatus === "Install Complete") updates.m1Due = true;
+      if (newStatus === "Inspection Passed") { updates.m1Due = true; updates.m2Due = true; }
+      return { ...j, ...updates };
+    }));
   }
 
-  // Status counts for chips
   const counts = {};
   STATUSES.forEach(s => { counts[s] = jobs.filter(j => j.status === s).length; });
 
@@ -119,8 +123,10 @@ export default function JobsPage() {
                 background: active ? sc.color : sc.bg,
                 color: active ? "white" : sc.color,
                 border: `0.5px solid ${sc.color}44`,
+                display: "flex", alignItems: "center", gap: 5,
               }}
             >
+              {s === "Rescheduled / Issue" && <AlertTriangle size={10} />}
               {s} ({counts[s]})
             </button>
           );
@@ -157,24 +163,54 @@ export default function JobsPage() {
         {filtered.map(job => {
           const sc = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
           const stage = STAGE_MAP[job.status] || 0;
+          const isIssue = job.status === "Rescheduled / Issue";
+          const m1 = m1Due(job);
+          const m2 = m2Due(job);
+
           return (
-            <div key={job.id} className="card" style={{ padding: "14px 18px" }}>
+            <div
+              key={job.id}
+              className="card"
+              style={{
+                padding: "14px 18px",
+                borderColor: isIssue ? "#fca5a5" : undefined,
+                background: isIssue ? "#fff8f8" : undefined,
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
-                {/* Left — main info */}
+                {/* Left */}
                 <Link href={`/jobs/${job.id}`} style={{ textDecoration: "none", flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+                    {isIssue && <AlertTriangle size={13} style={{ color: "#dc2626", flexShrink: 0 }} />}
                     <span style={{ fontWeight: 600, fontSize: 15, color: "var(--text-primary)" }}>{job.customer}</span>
                     <span className="mono badge badge-slate">{job.id}</span>
-                    {job.contractor && (
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: sc.bg, color: sc.color, fontWeight: 500 }}>
-                        {job.contractor}
+                    {job.battery && <span className="badge badge-blue">Battery</span>}
+                    {/* M1/M2 payment badges */}
+                    {m1 && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+                        background: job.m1Received ? "#d8f3dc" : "#fef3c7",
+                        color: job.m1Received ? "#1b4332" : "#78350f",
+                        letterSpacing: "0.03em",
+                      }}>
+                        M1 {job.m1Received ? "✓" : "due"}
                       </span>
                     )}
-                    {job.battery && <span className="badge badge-blue">Battery</span>}
+                    {m2 && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+                        background: job.m2Received ? "#d8f3dc" : "#fef3c7",
+                        color: job.m2Received ? "#1b4332" : "#78350f",
+                        letterSpacing: "0.03em",
+                      }}>
+                        M2 {job.m2Received ? "✓" : "due"}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", gap: 12, flexWrap: "wrap" }}>
                     <span>{job.state} · {job.street}, {job.city}</span>
-                    {job.panelCount > 0 && <span>{job.panelCount} panels</span>}
+                    {job.panelCount > 0 && <span>{job.panelCount} panels · {job.systemSize} kW</span>}
+                    {job.crew?.length > 0 && <span>Crew: {job.crew.join(", ")}</span>}
                   </div>
                 </Link>
 
@@ -185,11 +221,10 @@ export default function JobsPage() {
                       <span>Progress</span><span>{stage}%</span>
                     </div>
                     <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${stage}%` }} />
+                      <div className="progress-fill" style={{ width: `${stage}%`, background: isIssue ? "#dc2626" : undefined }} />
                     </div>
                   </div>
 
-                  {/* Inline status dropdown */}
                   <select
                     value={job.status}
                     onChange={e => { e.stopPropagation(); updateStatus(job.id, e.target.value); }}
@@ -203,7 +238,7 @@ export default function JobsPage() {
                       fontWeight: 500,
                       cursor: "pointer",
                       fontFamily: "var(--font-body)",
-                      minWidth: 120,
+                      minWidth: 140,
                     }}
                   >
                     {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -217,10 +252,11 @@ export default function JobsPage() {
 
               {job.nextAction && (
                 <div style={{
-                  marginTop: 8, fontSize: 12, color: "var(--text-secondary)",
-                  background: "var(--surface-2)", borderRadius: "var(--radius-sm)",
-                  padding: "4px 10px", display: "inline-block",
+                  marginTop: 8, fontSize: 12, color: isIssue ? "#dc2626" : "var(--text-secondary)",
+                  background: isIssue ? "#fee2e2" : "var(--surface-2)", borderRadius: "var(--radius-sm)",
+                  padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 5,
                 }}>
+                  {isIssue && <AlertTriangle size={11} />}
                   → {job.nextAction}
                 </div>
               )}

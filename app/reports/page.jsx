@@ -1,7 +1,7 @@
 "use client";
-
+import { useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { jobs, invoices, serviceItems, permits } from "@/lib/data";
+import { useAllJobs, jobsToInvoices, jobsToService, jobsToPermits } from "@/lib/useAllJobs";
 import { formatCurrency } from "@/lib/utils";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
@@ -34,16 +34,27 @@ function MetricBlock({ label, value, sub, trend }) {
   );
 }
 
+const STAGE_MAP = {
+  "Scheduled": 20, "Install Complete": 40, "Inspection Scheduled": 60,
+  "Inspection Passed": 80, "Fully Paid / Closed": 100, "Rescheduled / Issue": 50,
+};
+
 export default function ReportsPage() {
+  const jobs = useAllJobs();
+  const invoices = useMemo(() => jobsToInvoices(jobs), [jobs]);
+  const serviceItems = useMemo(() => jobsToService(jobs), [jobs]);
+  const permits = useMemo(() => jobsToPermits(jobs), [jobs]);
+
   // Computed metrics
-  const totalPipeline = jobs.reduce((s, j) => s + j.amount, 0);
+  const totalPipeline = jobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
   const collected = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0);
   const outstanding = invoices.filter(i => i.status !== "Paid").reduce((s, i) => s + i.amount, 0);
   const overdueAmt = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + i.amount, 0);
 
   const approvedPermits = permits.filter(p => p.status === "Approved").length;
-  const avgStage = Math.round(jobs.reduce((s, j) => s + j.stage, 0) / jobs.length);
-  const nearPto = jobs.filter(j => j.stage >= 80).length;
+  const stages = jobs.map(j => STAGE_MAP[j.status] || 20);
+  const avgStage = stages.length ? Math.round(stages.reduce((a, b) => a + b, 0) / stages.length) : 0;
+  const nearPto = jobs.filter(j => (STAGE_MAP[j.status] || 0) >= 80).length;
 
   const openService = serviceItems.filter(s => s.status !== "Resolved").length;
   const highUrgency = serviceItems.filter(s => s.urgency === "High" && s.status !== "Resolved").length;
@@ -54,11 +65,14 @@ export default function ReportsPage() {
 
   // Revenue by rep
   const repRevenue = {};
-  jobs.forEach(j => { repRevenue[j.rep] = (repRevenue[j.rep] || 0) + j.amount; });
+  jobs.forEach(j => { repRevenue[j.rep] = (repRevenue[j.rep] || 0) + (j.contractAmount || j.installCost || 0); });
 
   // Finance breakdown
   const financeCounts = {};
-  jobs.forEach(j => { financeCounts[j.finance] = (financeCounts[j.finance] || 0) + 1; });
+  jobs.forEach(j => {
+    const f = j.financer || j.finance || "Unknown";
+    financeCounts[f] = (financeCounts[f] || 0) + 1;
+  });
 
   return (
     <AppShell>

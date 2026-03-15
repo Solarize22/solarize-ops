@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { invoices } from "@/lib/data";
+import { useAllJobs, jobsToInvoices } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import { Search, AlertCircle } from "lucide-react";
 
@@ -10,6 +10,8 @@ const STATUSES = ["All", "Paid", "Pending", "Overdue"];
 const TYPES = ["All", "M1", "M2"];
 
 export default function InvoicesPage() {
+  const allJobs = useAllJobs();
+  const invoices = useMemo(() => jobsToInvoices(allJobs), [allJobs]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
