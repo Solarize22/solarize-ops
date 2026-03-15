@@ -7,7 +7,7 @@ import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import { AlertTriangle, CheckCircle2, DollarSign, ClipboardList, Wrench, FileText, CalendarDays } from "lucide-react";
 
 export default function DashboardPage() {
-  const totalRevenue = jobs.reduce((s, j) => s + j.contractAmount, 0);
+  const totalRevenue = jobs.reduce((s, j) => s + j.amount, 0);
   const activeJobs = jobs.filter(j => j.status !== "Inspection Passed").length;
   const openService = serviceItems.filter(s => s.status !== "Resolved").length;
   const pendingPermits = permits.filter(p => p.status !== "Approved").length;
@@ -47,7 +47,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: 16, alignItems: "flex-start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: 16 }}>
 
         {/* Alerts */}
         <div className="card" style={{ padding: "18px 20px" }}>
@@ -170,7 +170,7 @@ export default function DashboardPage() {
                 <tr key={job.id}>
                   <td style={{ fontWeight: 500 }}>{job.customer}</td>
                   <td><span className="mono badge badge-slate">{job.id}</span></td>
-                  <td style={{ color: "var(--text-secondary)" }}>{job.city}, {job.state}</td>
+                  <td style={{ color: "var(--text-secondary)" }}>{job.town}</td>
                   <td><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span></td>
                   <td style={{ minWidth: 120 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -181,7 +181,7 @@ export default function DashboardPage() {
                     </div>
                   </td>
                   <td style={{ color: "var(--text-secondary)", maxWidth: 180 }}>{job.nextAction}</td>
-                  <td style={{ fontWeight: 500 }}>{formatCurrency(job.contractAmount)}</td>
+                  <td style={{ fontWeight: 500 }}>{formatCurrency(job.amount)}</td>
                 </tr>
               ))}
             </tbody>
