@@ -1,23 +1,71 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import { statusBadgeClass, formatCurrency } from "@/lib/utils";
-import { Upload, CheckCircle2, AlertTriangle, Download, X, FileText } from "lucide-react";
+import { Upload, CheckCircle2, AlertTriangle, Download, X, FileText, ChevronDown, ChevronUp, Trash2, RotateCcw } from "lucide-react";
 
-// Maps CSV column headers (flexible) to our job fields
-function parseCSVRow(headers, values) {
-  const row = {};
-  headers.forEach((h, i) => { row[h.trim().toLowerCase().replace(/\s+/g, "_")] = (values[i] || "").trim().replace(/^"|"$/g, ""); });
-  return row;
-}
+const VALID_STATUSES = [
+  "Scheduled",
+  "Install Complete",
+  "Inspection Scheduled",
+  "Inspection Passed",
+  "Fully Paid / Closed",
+  "Rescheduled / Issue",
+];
+
+const STATUS_MAP = {
+  // Scheduled
+  "scheduled":              "Scheduled",
+  "permit_pending":         "Scheduled",
+  "design_review":          "Scheduled",
+  "review":                 "Scheduled",
+  "not_completed":          "Scheduled",
+  "not_started":            "Scheduled",
+  // Install Complete
+  "install_complete":       "Install Complete",
+  "complete":               "Install Complete",
+  "installed":              "Install Complete",
+  "in_progress":            "Install Complete",
+  "started":                "Install Complete",
+  "c":                      "Install Complete",
+  // Inspection Scheduled
+  "inspection_scheduled":   "Inspection Scheduled",
+  "waiting_inspection":     "Inspection Scheduled",
+  "inspection_pending":     "Inspection Scheduled",
+  // Inspection Passed
+  "inspection_passed":      "Inspection Passed",
+  "passed":                 "Inspection Passed",
+  "need_m2":                "Inspection Passed",
+  // Fully Paid / Closed
+  "fully_paid_/_closed":    "Fully Paid / Closed",
+  "fully_paid":             "Fully Paid / Closed",
+  "closed":                 "Fully Paid / Closed",
+  "paid":                   "Fully Paid / Closed",
+  // Rescheduled / Issue
+  "rescheduled_/_issue":    "Rescheduled / Issue",
+  "rescheduled":            "Rescheduled / Issue",
+  "install_rescheduled":    "Rescheduled / Issue",
+  "issue":                  "Rescheduled / Issue",
+  "on_hold":                "Rescheduled / Issue",
+  "pto_hold":               "Rescheduled / Issue",
+  "service_call":           "Rescheduled / Issue",
+};
+
+const STATE_ABBREV = {
+  "connecticut": "CT", "massachusetts": "MA", "new hampshire": "NH",
+  "maine": "ME", "vermont": "VT", "rhode island": "RI",
+  "new york": "NY", "new jersey": "NJ", "new mexico": "NM",
+  "north carolina": "NC", "north dakota": "ND", "south carolina": "SC",
+  "south dakota": "SD", "west virginia": "WV", "new mexico": "NM",
+  "california": "CA", "florida": "FL", "texas": "TX", "ohio": "OH",
+};
 
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/\s+/g, "_"));
   return lines.slice(1).map(line => {
-    // Handle quoted fields with commas inside
     const values = [];
     let current = "";
     let inQuotes = false;
@@ -27,12 +75,13 @@ function parseCSV(text) {
       else { current += line[i]; }
     }
     values.push(current);
-    return parseCSVRow(headers, values);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (values[i] || "").trim().replace(/^"|"$/g, ""); });
+    return row;
   }).filter(r => Object.values(r).some(v => v));
 }
 
 function mapToJob(row, index) {
-  // Try multiple possible column name variations
   const get = (...keys) => {
     for (const k of keys) {
       if (row[k] !== undefined && row[k] !== "") return row[k];
@@ -42,16 +91,14 @@ function mapToJob(row, index) {
 
   const customer = get("customer", "customer_name", "homeowner", "name", "job_name");
   const jobId = get("job_id", "job_#", "job_number", "id", "job#", "project_id") || `IMPORT-${index + 1}`;
-  const address = get("address", "street_address", "full_address");
-  
-  // Try to split address if it's all in one field
+
+  const address = get("address", "full_address");
   let street = get("street", "street_address");
   let city = get("city");
   let state = get("state", "market");
   let zip = get("zip", "zipcode", "zip_code");
 
   if (!street && address) {
-    // Try to parse "123 Main St, City, ST, 12345"
     const parts = address.split(",").map(p => p.trim());
     street = parts[0] || "";
     city = parts[1] || "";
@@ -60,67 +107,98 @@ function mapToJob(row, index) {
     zip = stateZip[1] || parts[3] || "";
   }
 
-  const status = get("status") || "Design Review";
-  const normalizedStatus = {
-    "install_complete": "Install Complete",
-    "complete": "Install Complete",
-    "installed": "Install Complete",
-    "pto_hold": "PTO Hold",
-    "inspection_passed": "Inspection Passed",
-    "passed": "Inspection Passed",
-    "service_call": "Service Call",
-    "permit_pending": "Permit Pending",
-    "design_review": "Design Review",
-    "review": "Design Review",
-    "in_progress": "Install Complete",
-    "not_completed": "Permit Pending",
-  }[status.toLowerCase().replace(/\s+/g, "_")] || "Design Review";
+  // Status: handle comma-separated values like "Review, Install Complete" by taking last part
+  const rawStatus = (get("status") || "").split(",").map(s => s.trim()).filter(Boolean).pop() || "";
+  const normalizedStatus =
+    VALID_STATUSES.find(s => s.toLowerCase() === rawStatus.toLowerCase()) ||
+    STATUS_MAP[rawStatus.toLowerCase().replace(/[\s/]+/g, "_")] ||
+    "Scheduled";
+
+  // Crew: accept comma or semicolon separated string
+  const crewRaw = get("crew", "crew_members");
+  const crew = crewRaw ? crewRaw.split(/[,;]+/).map(s => s.trim()).filter(Boolean) : [];
+
+  const bool = v => ["yes", "true", "1", "x"].includes((v || "").toLowerCase().trim());
+
+  // M1/M2: CSV uses "M1"/"M2" columns (TRUE/FALSE), mapper accepts those plus verbose names
+  const m1Received = bool(get("m1_received", "m1_paid", "m1"));
+  const m2Received = bool(get("m2_received", "m2_paid", "m2"));
+
+  // Auto-derive m1Due / m2Due from status (same logic as the app)
+  const m1Due = ["Install Complete", "Inspection Scheduled", "Inspection Passed", "Fully Paid / Closed"].includes(normalizedStatus) || m1Received;
+  const m2Due = ["Inspection Passed", "Fully Paid / Closed"].includes(normalizedStatus) || m2Received;
+
+  // Contract amount: try direct column, fall back to install_cost, then Due 80% + Due 20%
+  const parseMoney = v => parseFloat((v || "").replace(/[$,]/g, "")) || 0;
+  const installCost = parseMoney(get("install_cost", "cost"));
+  const due80 = parseMoney(get("due_80%", "due_80"));
+  const due20 = parseMoney(get("due_20%", "due_20"));
+  const contractAmount =
+    parseMoney(get("contract_amount", "contract", "amount", "price")) ||
+    installCost ||
+    (due80 + due20) ||
+    0;
+
+  // Adders
+  const adders = [];
+  const adderDesc = get("adder_description", "adder_desc", "adder");
+  const adderCost = parseMoney(get("adder_cost"));
+  if (adderDesc) adders.push({ description: adderDesc, cost: adderCost || 0 });
 
   return {
     id: jobId,
-    contractor: get("contractor") || "Empower",
-    payout: parseFloat(get("payout", "partner_cost", "amount") || "0") || 0,
-    customer: customer,
-    phone: get("phone", "phone_number", "display3"),
+    customer,
+    phone: get("phone", "phone_number"),
     email: get("email", "email_address"),
     street,
     city,
-    state: state.toUpperCase().trim(),
+    state: (STATE_ABBREV[state.toLowerCase().trim()] || state.toUpperCase().trim().slice(0, 2)),
     zip,
-    hoa: ["yes", "true", "1"].includes(get("hoa").toLowerCase()),
-    systemSize: get("system_size", "kw", "system_size_kw") || "",
+    hoa: bool(get("hoa")),
+    systemSize: get("system_size_kw", "system_size", "kw") || "",
     panelCount: parseInt(get("panel_count", "panels") || "0") || 0,
+    watt: parseInt(get("watt", "watt_per_panel", "watts") || "0") || 0,
     inverter: get("inverter") || "",
-    battery: ["yes", "true", "1"].includes(get("battery").toLowerCase()),
+    battery: bool(get("battery")),
     roofType: get("roof_type") || "",
-    rep: get("rep", "salesperson", "username") || "",
-    financer: get("financer", "financier", "finance") || "",
-    contractAmount: parseFloat(get("contract_amount", "contract", "amount") || "0") || 0,
+    rep: get("rep", "salesperson") || "",
+    financer: get("financer", "finance") || "",
+    contractAmount,
+    installCost: installCost || contractAmount,
+    partner: get("partner", "build_partner") || "",
+    crew,
+    invoiceNumber: get("invoice_number", "invoice_#", "invoice") || "",
     utilityCompany: get("utility_company", "utility") || "",
     permitStatus: get("permit_status") || "Not Submitted",
-    stage: parseInt(get("stage") || "0") || 0,
     status: normalizedStatus,
+    m1Due,
+    m1Received,
+    m2Due,
+    m2Received,
+    adders,
     installDate: get("install_date", "due_date") || "",
     inspectionDate: get("inspection_date") || "",
-    ptoDate: get("pto_date") || "",
-    siteSurveyDate: get("site_survey_date") || "",
-    interconnectionStatus: get("interconnection_status") || "Not submitted",
-    buildPartner: get("build_partner", "partner") || "",
     nextAction: get("next_action", "remaining_work") || "",
     notes: [get("notes"), get("additional_notes")].filter(Boolean).join(" ").trim(),
     createdAt: new Date().toISOString().split("T")[0],
-    updatedAt: new Date().toISOString().split("T")[0],
   };
 }
 
 export default function ImportPage() {
-  const [step, setStep] = useState("upload"); // upload | preview | done
+  const [step, setStep] = useState("upload");
   const [jobs, setJobs] = useState([]);
   const [errors, setErrors] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [fileName, setFileName] = useState("");
   const [importedCount, setImportedCount] = useState(0);
+  const [showGuide, setShowGuide] = useState(false);
+  const [sessionJobCount, setSessionJobCount] = useState(0);
   const fileRef = useRef();
+
+  useEffect(() => {
+    const stored = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
+    setSessionJobCount(stored.length);
+  }, [step]);
 
   function processFile(file) {
     if (!file || !file.name.endsWith(".csv")) {
@@ -130,14 +208,15 @@ export default function ImportPage() {
     setFileName(file.name);
     const reader = new FileReader();
     reader.onload = e => {
-      const text = e.target.result;
-      const rows = parseCSV(text);
+      const rows = parseCSV(e.target.result);
       if (rows.length === 0) {
         setErrors(["No data found in CSV. Make sure it has a header row and at least one data row."]);
         return;
       }
       const mapped = rows.map((row, i) => mapToJob(row, i));
-      const errs = mapped.filter(j => !j.customer).map((_, i) => `Row ${i + 1}: Missing customer name`);
+      const errs = mapped
+        .map((j, i) => !j.customer ? `Row ${i + 1}: Missing customer name` : null)
+        .filter(Boolean);
       setJobs(mapped);
       setErrors(errs);
       setStep("preview");
@@ -151,45 +230,71 @@ export default function ImportPage() {
     processFile(e.dataTransfer.files[0]);
   }
 
-  function handleFileInput(e) {
-    processFile(e.target.files[0]);
-  }
-
   function handleImport() {
-    // In a real app this would save to database
-    // For now we store in sessionStorage so the jobs page can read them
     const existing = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
     const merged = [...existing];
+    let added = 0;
     jobs.forEach(job => {
-      if (!merged.find(j => j.id === job.id)) merged.push(job);
+      if (!merged.find(j => j.id === job.id)) { merged.push(job); added++; }
     });
     sessionStorage.setItem("importedJobs", JSON.stringify(merged));
-    setImportedCount(jobs.length);
+    setImportedCount(added);
     setStep("done");
   }
 
   function downloadTemplate() {
     const headers = [
-      "job_id", "customer", "phone", "email", "street", "city", "state", "zip",
-      "hoa", "system_size_kw", "panel_count", "inverter", "battery", "roof_type",
-      "rep", "financer", "contract_amount", "payout", "contractor", "utility_company",
-      "permit_status", "status", "stage", "install_date", "inspection_date",
-      "pto_date", "site_survey_date", "build_partner", "next_action", "notes"
+      "job_id", "customer", "phone", "email",
+      "street", "city", "state", "zip",
+      "system_size_kw", "panel_count", "watt_per_panel",
+      "inverter", "battery", "roof_type",
+      "rep", "financer", "contract_amount", "install_cost",
+      "partner", "crew", "invoice_number",
+      "utility_company", "permit_status",
+      "status", "install_date", "inspection_date",
+      "m1_received", "m2_received",
+      "adder_description", "adder_cost",
+      "next_action", "notes",
     ].join(",");
+
     const sample = [
       "CT-5274", "Janvier Paulette", "860-555-0192", "paulette@email.com",
       "84 Elmwood Ave", "Waterbury", "CT", "06704",
-      "No", "14.4", "36", "Enphase IQ8A", "No", "Asphalt shingle",
-      "Tommy", "GoodLeap", "11628", "11628", "Solarize", "Eversource CT",
-      "Approved", "Install Complete", "80", "2026-03-03", "",
-      "", "2026-01-15", "SolarCrew NE", "Schedule inspection", "Sample job - delete this row"
+      "14.4", "36", "400",
+      "Enphase IQ8A", "No", "Asphalt shingle",
+      "Tommy", "GoodLeap", "11628", "11628",
+      "SolarCrew NE", "Tommy, Jake", "INV-2965",
+      "Eversource CT", "Approved",
+      "Install Complete", "2026-03-03", "",
+      "Yes", "No",
+      "200A panel upgrade", "2200",
+      "Schedule inspection", "Sample job — delete this row",
     ].join(",");
+
     const blob = new Blob([headers + "\n" + sample], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "solarize_jobs_template.csv";
+    a.download = "solarize_import_template.csv";
     a.click();
+  }
+
+  function reset() {
+    setStep("upload"); setJobs([]); setErrors([]); setFileName("");
+  }
+
+  function undoLastImport() {
+    const existing = JSON.parse(sessionStorage.getItem("importedJobs") || "[]");
+    const importedIds = new Set(jobs.map(j => j.id));
+    const remaining = existing.filter(j => !importedIds.has(j.id));
+    sessionStorage.setItem("importedJobs", JSON.stringify(remaining));
+    setSessionJobCount(remaining.length);
+    reset();
+  }
+
+  function clearAllImported() {
+    sessionStorage.removeItem("importedJobs");
+    setSessionJobCount(0);
   }
 
   return (
@@ -200,7 +305,28 @@ export default function ImportPage() {
       </div>
 
       {step === "upload" && (
-        <div style={{ maxWidth: 600 }}>
+        <div style={{ maxWidth: 620 }}>
+
+          {/* Session jobs banner */}
+          {sessionJobCount > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              background: "var(--amber-bg)", border: "1px solid #fcd34d",
+              borderRadius: "var(--radius-md)", padding: "12px 16px", marginBottom: 16, gap: 12,
+            }}>
+              <div style={{ fontSize: 13, color: "var(--amber-text)" }}>
+                <strong>{sessionJobCount} imported job{sessionJobCount !== 1 ? "s" : ""}</strong> active in this session
+              </div>
+              <button
+                className="btn btn-outline"
+                onClick={clearAllImported}
+                style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--red)", borderColor: "var(--red)", flexShrink: 0 }}
+              >
+                <Trash2 size={12} /> Clear all imported jobs
+              </button>
+            </div>
+          )}
+
           {/* Drop zone */}
           <div
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -210,7 +336,7 @@ export default function ImportPage() {
             style={{
               border: `2px dashed ${dragOver ? "var(--text-primary)" : "var(--border-strong)"}`,
               borderRadius: "var(--radius-lg)",
-              padding: "48px 24px",
+              padding: "52px 24px",
               textAlign: "center",
               cursor: "pointer",
               background: dragOver ? "var(--surface-2)" : "var(--surface)",
@@ -220,8 +346,8 @@ export default function ImportPage() {
           >
             <Upload size={28} style={{ color: "var(--text-tertiary)", marginBottom: 12 }} />
             <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Drop your CSV here</div>
-            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>or click to browse</div>
-            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={handleFileInput} />
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>or click to browse · any column order · flexible headers</div>
+            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={e => processFile(e.target.files[0])} />
           </div>
 
           {errors.length > 0 && (
@@ -230,21 +356,85 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* Tips */}
-          <div className="card" style={{ padding: "16px 20px", marginBottom: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>What your CSV needs</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "var(--text-secondary)" }}>
-              <div>✓ First row must be column headers</div>
-              <div>✓ One row per job (not per event)</div>
-              <div>✓ <strong style={{ color: "var(--text-primary)" }}>customer</strong> column is required — everything else is optional</div>
-              <div>✓ Dates in any format (2026-03-15 or 3/15/2026)</div>
-              <div>✓ Columns can be in any order</div>
-            </div>
+          {/* Actions row */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+            <button className="btn btn-outline" onClick={downloadTemplate} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <Download size={14} /> Download template
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowGuide(v => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+            >
+              Column guide {showGuide ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
           </div>
 
-          <button className="btn btn-outline" onClick={downloadTemplate} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <Download size={14} /> Download blank template
-          </button>
+          {/* Column guide */}
+          {showGuide && (
+            <div className="card" style={{ padding: "16px 20px", marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Accepted column headers</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 24px", fontSize: 12 }}>
+                {[
+                  ["job_id", "job_id / job_# / id"],
+                  ["customer", "customer / homeowner / name ✱"],
+                  ["phone", "phone / phone_number"],
+                  ["email", "email / email_address"],
+                  ["street", "street / street_address"],
+                  ["city", "city"],
+                  ["state", "state / market"],
+                  ["zip", "zip / zipcode"],
+                  ["status", "status (see values below)"],
+                  ["system_size_kw", "system_size_kw / kw"],
+                  ["panel_count", "panel_count / panels"],
+                  ["watt_per_panel", "watt / watt_per_panel"],
+                  ["inverter", "inverter"],
+                  ["battery", "battery (yes/no)"],
+                  ["contract_amount", "contract_amount / amount"],
+                  ["install_cost", "install_cost / cost / payout"],
+                  ["partner", "partner / build_partner"],
+                  ["crew", "crew (comma-separated names)"],
+                  ["invoice_number", "invoice_number / invoice"],
+                  ["install_date", "install_date / due_date"],
+                  ["inspection_date", "inspection_date"],
+                  ["m1_received", "m1_received (yes/no)"],
+                  ["m2_received", "m2_received (yes/no)"],
+                  ["adder_description", "adder_description"],
+                  ["adder_cost", "adder_cost"],
+                  ["next_action", "next_action"],
+                  ["notes", "notes"],
+                ].map(([key, val]) => (
+                  <div key={key} style={{ color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                    <span style={{ fontWeight: 500, color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{key}</span>
+                    {" — "}{val}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Valid status values</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {VALID_STATUSES.map(s => (
+                    <span key={s} className={`badge ${statusBadgeClass(s)}`} style={{ fontSize: 11 }}>{s}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
+                  Common aliases like "installed", "complete", "closed", "issue" are also accepted.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Requirements */}
+          <div className="card" style={{ padding: "14px 18px" }}>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 5 }}>
+              <div>✓ First row must be column headers</div>
+              <div>✓ One row per job — <strong style={{ color: "var(--text-primary)" }}>customer</strong> is the only required column</div>
+              <div>✓ Columns can be in any order, extra columns are ignored</div>
+              <div>✓ Dates in any format (2026-03-15 or 3/15/2026)</div>
+              <div>✓ Crew can be comma-separated in one cell: <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>Tommy, Jake</span></div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -262,7 +452,7 @@ export default function ImportPage() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-outline" onClick={() => { setStep("upload"); setJobs([]); setErrors([]); setFileName(""); }}>
+              <button className="btn btn-outline" onClick={reset} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <X size={13} /> Cancel
               </button>
               <button className="btn btn-primary" onClick={handleImport}>
@@ -280,7 +470,6 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* Preview table */}
           <div className="card">
             <div className="table-wrap">
               <table>
@@ -289,16 +478,17 @@ export default function ImportPage() {
                     <th>Job ID</th>
                     <th>Customer</th>
                     <th>Address</th>
-                    <th>Contractor</th>
                     <th>Status</th>
-                    <th>Panels</th>
+                    <th>Contract $</th>
+                    <th>Crew</th>
                     <th>Install date</th>
-                    <th>Payout</th>
+                    <th>M1</th>
+                    <th>M2</th>
                   </tr>
                 </thead>
                 <tbody>
                   {jobs.map((job, i) => (
-                    <tr key={i} style={!job.customer ? { background: "#fff5f5" } : {}}>
+                    <tr key={i} style={!job.customer ? { background: "#fff5f5" } : undefined}>
                       <td><span className="mono badge badge-slate">{job.id}</span></td>
                       <td style={{ fontWeight: 500 }}>
                         {job.customer || <span style={{ color: "var(--red)" }}>Missing</span>}
@@ -306,11 +496,22 @@ export default function ImportPage() {
                       <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                         {[job.street, job.city, job.state].filter(Boolean).join(", ") || "—"}
                       </td>
-                      <td style={{ fontSize: 12 }}>{job.contractor || "—"}</td>
                       <td><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span></td>
-                      <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{job.panelCount || "—"}</td>
+                      <td style={{ fontWeight: 500 }}>{job.contractAmount ? formatCurrency(job.contractAmount) : "—"}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                        {job.crew?.length > 0 ? job.crew.join(", ") : "—"}
+                      </td>
                       <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{job.installDate || "—"}</td>
-                      <td style={{ fontWeight: 500 }}>{job.payout ? formatCurrency(job.payout) : "—"}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {job.m1Due
+                          ? <span style={{ color: job.m1Received ? "var(--green)" : "var(--amber)" }}>{job.m1Received ? "✓ Rcvd" : "Due"}</span>
+                          : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        {job.m2Due
+                          ? <span style={{ color: job.m2Received ? "var(--green)" : "var(--amber)" }}>{job.m2Received ? "✓ Rcvd" : "Due"}</span>
+                          : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -328,14 +529,30 @@ export default function ImportPage() {
               {importedCount} job{importedCount !== 1 ? "s" : ""} imported
             </div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 24, lineHeight: 1.7 }}>
-              Your jobs have been added to the pipeline for this session. Once you connect a database, imports will be saved permanently.
+              Added to your pipeline for this session. Jobs already in the system by ID were skipped.
             </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
               <a href="/jobs" className="btn btn-primary">View jobs →</a>
-              <button className="btn btn-outline" onClick={() => { setStep("upload"); setJobs([]); setErrors([]); setFileName(""); }}>
-                Import another file
-              </button>
+              <button className="btn btn-outline" onClick={reset}>Import another file</button>
             </div>
+          </div>
+
+          {/* Undo strip */}
+          <div style={{
+            marginTop: 12, padding: "12px 16px",
+            background: "var(--surface-2)", borderRadius: "var(--radius-md)",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          }}>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              Something look wrong? Remove everything you just imported.
+            </div>
+            <button
+              className="btn btn-outline"
+              onClick={undoLastImport}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--red)", borderColor: "var(--red)", flexShrink: 0 }}
+            >
+              <RotateCcw size={12} /> Undo this import
+            </button>
           </div>
         </div>
       )}

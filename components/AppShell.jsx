@@ -22,7 +22,7 @@ const navItems = [
   { href: "/invoices",   label: "Invoices",   icon: DollarSign },
   { href: "/service",    label: "Service",    icon: Wrench },
   { href: "/reports",    label: "Reports",    icon: BarChart3 },
-  { href: "/import",     label: "Import CSV", icon: Upload },
+  { href: "/import",     label: "Import jobs", icon: Upload },
 ];
 
 export default function AppShell({ children }) {
@@ -108,7 +108,7 @@ export default function AppShell({ children }) {
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Today's focus</div>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            Keep installs moving, catch PTO blockers, and chase down missing M2 payments.
+            Keep installs moving, resolve issues, and chase down missing M2 payments.
           </div>
         </div>
       </aside>

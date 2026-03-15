@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { scheduleItems } from "@/lib/data";
+import { useAllJobs, jobsToSchedule } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search, MapPin, Clock, Users } from "lucide-react";
 
@@ -10,6 +10,8 @@ const TYPES = ["All", "Install", "Inspection", "Service"];
 const STATUSES = ["All", "Confirmed", "Tentative", "Cancelled"];
 
 export default function SchedulingPage() {
+  const allJobs = useAllJobs();
+  const scheduleItems = useMemo(() => jobsToSchedule(allJobs), [allJobs]);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");

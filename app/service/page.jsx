@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { serviceItems } from "@/lib/data";
+import { useAllJobs, jobsToService } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search, MapPin } from "lucide-react";
 
@@ -10,6 +10,8 @@ const URGENCIES = ["All", "High", "Medium", "Low"];
 const STATUSES = ["All", "Open", "In Progress", "Scheduled", "Resolved"];
 
 export default function ServicePage() {
+  const allJobs = useAllJobs();
+  const serviceItems = useMemo(() => jobsToService(allJobs), [allJobs]);
   const [search, setSearch] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
