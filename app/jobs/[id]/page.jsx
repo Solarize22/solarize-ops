@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { jobs } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ArrowLeft, Pencil, Save, X, MapPin, Phone, Mail, Zap, Wrench, DollarSign, User, Building, Plus, Check, AlertTriangle } from "lucide-react";
 
@@ -131,12 +130,10 @@ export default function JobDetailPage() {
   const savedSnapshot = useRef(null);
 
   useEffect(() => {
-    const staticJob = jobs.find(j => j.id === id);
-    if (staticJob) { savedSnapshot.current = { ...staticJob }; setJob({ ...staticJob }); setLoading(false); return; }
     fetch("/api/jobs")
       .then(r => r.json())
-      .then(imported => {
-        const found = imported.find(j => j.id === id);
+      .then(all => {
+        const found = all.find(j => j.id === id);
         if (found) { savedSnapshot.current = { ...found }; setJob({ ...found }); }
         else setJob(null);
       })
