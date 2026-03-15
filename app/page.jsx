@@ -47,7 +47,10 @@ export default function DashboardPage() {
   const jobs = filterByPeriod(allJobs, period);
 
   const totalRevenue    = jobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
+  const totalRevenueAll = allJobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
   const activeJobs      = jobs.filter(j => j.status !== "Fully Paid / Closed").length;
+  const activeJobsAll   = allJobs.filter(j => j.status !== "Fully Paid / Closed").length;
+  const isFiltered      = period !== "All time";
   const openService     = serviceItems.filter(s => s.status !== "Resolved").length;
   const pendingPermits  = permits.filter(p => p.status !== "Approved").length;
   const overdueInvoices = invoices.filter(i => i.status === "Overdue");
@@ -77,12 +80,18 @@ export default function DashboardPage() {
         <div className="stat-card">
           <div className="stat-label">Pipeline revenue</div>
           <div className="stat-value">{formatCurrency(totalRevenue)}</div>
-          <div className="stat-detail">{allJobs.length} total jobs</div>
+          {isFiltered
+            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{formatCurrency(totalRevenueAll)} all time</div>
+            : <div className="stat-detail">{allJobs.length} total jobs</div>
+          }
         </div>
         <div className="stat-card">
           <div className="stat-label">Active jobs</div>
           <div className="stat-value">{activeJobs}</div>
-          <div className="stat-detail">Moving through ops</div>
+          {isFiltered
+            ? <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>{activeJobsAll} all time</div>
+            : <div className="stat-detail">Moving through ops</div>
+          }
         </div>
         <div className="stat-card">
           <div className="stat-label">Open service</div>
