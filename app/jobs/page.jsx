@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { formatCurrency } from "@/lib/utils";
-import { Search, ChevronRight, Plus, AlertTriangle } from "lucide-react";
+import { Search, ChevronRight, Plus, AlertTriangle, Download } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 
 const STATUSES = [
@@ -128,6 +128,38 @@ export default function JobsPage() {
     setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
   }
 
+  function downloadCSV() {
+    const headers = [
+      "Job #", "Customer", "Status", "Street", "City", "State", "Zip",
+      "System Size (kW)", "Panels", "Watt/Panel", "Inverter", "Battery",
+      "Crew", "Rep", "Financer", "Contract Amount", "Install Cost",
+      "M1 Due", "M1 Received", "M2 Due", "M2 Received",
+      "Install Date", "Inspection Date", "Permit Status", "Interconnection Status",
+      "Invoice #", "Next Action", "Notes",
+    ];
+    const escape = v => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = sorted.map(j => [
+      j.id, j.customer, j.status, j.street, j.city, j.state, j.zip,
+      j.systemSize, j.panelCount || "", j.watt || "", j.inverter, j.battery ? "Yes" : "No",
+      (j.crew || []).join("; "), j.rep, j.financer, j.contractAmount || "", j.installCost || "",
+      j.m1Due ? "Yes" : "No", j.m1Received ? "Yes" : "No",
+      j.m2Due ? "Yes" : "No", j.m2Received ? "Yes" : "No",
+      j.installDate, j.inspectionDate, j.permitStatus, j.interconnectionStatus,
+      j.invoiceNumber, j.nextAction, j.notes,
+    ].map(escape).join(","));
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `solarize-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function updateStatus(jobId, newStatus) {
     const updates = { status: newStatus, lastUpdated: new Date().toISOString() };
     if (newStatus === "Install Complete") updates.m1Due = true;
@@ -152,6 +184,9 @@ export default function JobsPage() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <PeriodFilter value={period} onChange={setPeriod} />
+          <button className="btn btn-ghost" onClick={downloadCSV} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Download size={13} /> Export CSV
+          </button>
           <Link href="/jobs/new">
             <button className="btn btn-primary" style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <Plus size={13} /> New job
