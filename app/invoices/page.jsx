@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
 import { useAllJobs, jobsToInvoices } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
+import Link from "next/link";
 import { Search, AlertCircle } from "lucide-react";
 
 const STATUSES = ["All", "Paid", "Pending", "Overdue"];
@@ -135,8 +136,16 @@ export default function InvoicesPage() {
               {filtered.map(inv => (
                 <tr key={inv.id} style={inv.status === "Overdue" ? { background: "#fff5f5" } : {}}>
                   <td><span className="mono badge badge-slate">{inv.id}</span></td>
-                  <td style={{ fontWeight: 500 }}>{inv.customer}</td>
-                  <td><span className="mono badge badge-slate">{inv.jobId}</span></td>
+                  <td style={{ fontWeight: 500 }}>
+                    <Link href={`/jobs/${inv.jobId}`} onClick={e => e.stopPropagation()} style={{ color: "inherit", textDecoration: "none" }}>
+                      {inv.customer}
+                    </Link>
+                  </td>
+                  <td>
+                    <Link href={`/jobs/${inv.jobId}`} onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}>
+                      <span className="mono badge badge-slate">{inv.jobId}</span>
+                    </Link>
+                  </td>
                   <td>
                     <span style={{
                       fontFamily: "var(--font-mono)",

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { formatCurrency } from "@/lib/utils";
-import { Search, ChevronRight, Plus, AlertTriangle, Download } from "lucide-react";
+import { Search, ChevronRight, Plus, AlertTriangle, Download, X } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 
 const STATUSES = [
@@ -25,24 +25,12 @@ const STATUS_COLORS = {
   "Rescheduled / Issue":   { bg: "#fee2e2", color: "#7f1d1d" },
 };
 
-const STAGE_MAP = {
-  "Scheduled":             20,
-  "Install Complete":      40,
-  "Inspection Scheduled":  60,
-  "Inspection Passed":     80,
-  "Fully Paid / Closed":   100,
-  "Rescheduled / Issue":   50,
-};
-
-// M1 is due once install has been marked complete (at any point)
 function m1Due(job) {
   return job.m1Due || ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
 }
 function m2Due(job) {
   return job.m2Due || ["Inspection Passed","Fully Paid / Closed"].includes(job.status);
 }
-
-const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI"];
 
 function cardDate(job) {
   const candidates = [job.lastUpdated, job.inspectionDate, job.installDate]
@@ -52,6 +40,47 @@ function cardDate(job) {
   if (!candidates.length) return null;
   const latest = new Date(Math.max(...candidates));
   return latest.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function bestDate(job) {
+  return Math.max(
+    ...[job.lastUpdated, job.inspectionDate, job.installDate]
+      .filter(Boolean)
+      .map(d => new Date(d).getTime())
+      .filter(n => !isNaN(n)),
+    0
+  );
+}
+
+const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI", "NY", "NJ"];
+const M1_OPTIONS = ["All", "M1 Paid", "M1 Pending", "M1 Missing"];
+const M2_OPTIONS = ["All", "M2 Paid", "M2 Pending", "M2 Missing"];
+
+function FilterSelect({ value, onChange, options, placeholder }) {
+  const active = value !== "All" && value !== "";
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        fontSize: 12,
+        padding: "5px 10px",
+        borderRadius: 20,
+        border: active ? "1.5px solid var(--text-primary)" : "0.5px solid var(--border)",
+        background: active ? "var(--text-primary)" : "var(--surface)",
+        color: active ? "white" : "var(--text-secondary)",
+        cursor: "pointer",
+        fontFamily: "var(--font-body)",
+        fontWeight: active ? 600 : 400,
+      }}
+    >
+      {options.map(o => (
+        <option key={o} value={o} style={{ background: "white", color: "#111" }}>
+          {o === "All" ? placeholder : o}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 export default function JobsPage() {
@@ -64,12 +93,16 @@ export default function JobsPage() {
       .catch(() => {});
   }, []);
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch]           = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [stateFilter, setStateFilter] = useState("All");
-  const [period, setPeriod] = useState("All time");
+  const [stateFilter, setStateFilter]   = useState("All");
+  const [m1Filter, setM1Filter]         = useState("All");
+  const [m2Filter, setM2Filter]         = useState("All");
+  const [crewFilter, setCrewFilter]     = useState("All");
+  const [repFilter, setRepFilter]       = useState("All");
+  const [period, setPeriod]             = useState("All time");
   const [activeFilter, setActiveFilter] = useState("Active");
-  const [sort, setSort] = useState({ col: "date", dir: "desc" });
+  const [sort, setSort]                 = useState({ col: "date", dir: "desc" });
   const [columns, setColumns] = useState([
     { key: "customer", label: "Customer" },
     { key: "id",       label: "Job #" },
@@ -84,22 +117,60 @@ export default function JobsPage() {
   ]);
   const dragCol = useRef(null);
 
+  // Derived filter options from actual job data
+  const crewOptions = useMemo(() => {
+    const all = new Set();
+    jobs.forEach(j => (j.crew || []).forEach(c => c && all.add(c.trim())));
+    return ["All", ...Array.from(all).sort()];
+  }, [jobs]);
+
+  const repOptions = useMemo(() => {
+    const all = new Set();
+    jobs.forEach(j => j.rep && all.add(j.rep.trim()));
+    return ["All", ...Array.from(all).sort()];
+  }, [jobs]);
+
   const filtered = useMemo(() => {
     const byPeriod = filterByPeriod(jobs, period);
     return byPeriod.filter(j => {
-      const text = [j.customer, j.id, j.street, j.city, j.state, j.status].join(" ").toLowerCase();
-      const matchSearch = text.includes(search.toLowerCase());
+      // Search: split by spaces, each word must match at least one field
+      const matchSearch = !search.trim() || search.trim().toLowerCase().split(/\s+/).every(word => {
+        const haystack = [j.customer, j.id, j.street, j.city, j.state, j.zip, j.rep, ...(j.crew || [])]
+          .filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(word);
+      });
+
       const matchStatus = statusFilter === "All" || j.status === statusFilter;
-      const matchState = stateFilter === "All" || j.state === stateFilter;
+      const matchState  = stateFilter === "All" || j.state === stateFilter;
+      const matchCrew   = crewFilter === "All" || (j.crew || []).includes(crewFilter);
+      const matchRep    = repFilter === "All" || j.rep === repFilter;
+
+      // M1 filter
+      const jM1Due = m1Due(j);
+      const matchM1 =
+        m1Filter === "All"        ? true :
+        m1Filter === "M1 Paid"    ? (jM1Due && j.m1Received) :
+        m1Filter === "M1 Pending" ? (jM1Due && !j.m1Received) :
+        m1Filter === "M1 Missing" ? !jM1Due : true;
+
+      // M2 filter
+      const jM2Due = m2Due(j);
+      const matchM2 =
+        m2Filter === "All"        ? true :
+        m2Filter === "M2 Paid"    ? (jM2Due && j.m2Received) :
+        m2Filter === "M2 Pending" ? (jM2Due && !j.m2Received) :
+        m2Filter === "M2 Missing" ? !jM2Due : true;
+
       const bothPaid = j.m1Received && j.m2Received;
       const isActive = j.active !== false && j.status !== "Fully Paid / Closed" && !bothPaid;
       const matchActive =
         activeFilter === "All" ||
         (activeFilter === "Active" && isActive) ||
         (activeFilter === "Inactive" && !isActive);
-      return matchSearch && matchStatus && matchState && matchActive;
+
+      return matchSearch && matchStatus && matchState && matchCrew && matchRep && matchM1 && matchM2 && matchActive;
     });
-  }, [jobs, search, statusFilter, stateFilter, period, activeFilter]);
+  }, [jobs, search, statusFilter, stateFilter, crewFilter, repFilter, m1Filter, m2Filter, period, activeFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -107,15 +178,14 @@ export default function JobsPage() {
     arr.sort((a, b) => {
       let av, bv;
       if (col === "customer") { av = a.customer || ""; bv = b.customer || ""; }
-      else if (col === "id") { av = a.id || ""; bv = b.id || ""; }
+      else if (col === "id")   { av = a.id || ""; bv = b.id || ""; }
       else if (col === "status") { av = a.status || ""; bv = b.status || ""; }
       else if (col === "location") { av = (a.state || "") + (a.city || ""); bv = (b.state || "") + (b.city || ""); }
       else if (col === "system") { av = parseFloat(a.systemSize) || 0; bv = parseFloat(b.systemSize) || 0; return dir === "asc" ? av - bv : bv - av; }
       else if (col === "crew") { av = (a.crew || []).join(""); bv = (b.crew || []).join(""); }
-      else if (col === "rep") { av = a.rep || ""; bv = b.rep || ""; }
+      else if (col === "rep")  { av = a.rep || ""; bv = b.rep || ""; }
       else if (col === "date") {
-        av = new Date(Math.max(...[a.lastUpdated, a.inspectionDate, a.installDate].filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n)), 0));
-        bv = new Date(Math.max(...[b.lastUpdated, b.inspectionDate, b.installDate].filter(Boolean).map(d => new Date(d).getTime()).filter(n => !isNaN(n)), 0));
+        av = bestDate(a); bv = bestDate(b);
         return dir === "asc" ? av - bv : bv - av;
       }
       else { av = ""; bv = ""; }
@@ -125,28 +195,36 @@ export default function JobsPage() {
   }, [filtered, sort]);
 
   function toggleSort(col) {
-    setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+    setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "desc" });
+  }
+
+  const hasFilters = search || statusFilter !== "All" || stateFilter !== "All" ||
+    crewFilter !== "All" || repFilter !== "All" || m1Filter !== "All" || m2Filter !== "All";
+
+  function clearFilters() {
+    setSearch(""); setStatusFilter("All"); setStateFilter("All");
+    setCrewFilter("All"); setRepFilter("All"); setM1Filter("All"); setM2Filter("All");
   }
 
   function downloadCSV() {
     const headers = [
-      "Job #", "Customer", "Status", "Street", "City", "State", "Zip",
-      "System Size (kW)", "Panels", "Watt/Panel", "Inverter", "Battery",
-      "Crew", "Rep", "Financer", "Contract Amount", "Install Cost",
-      "M1 Due", "M1 Received", "M2 Due", "M2 Received",
-      "Install Date", "Inspection Date", "Permit Status", "Interconnection Status",
-      "Invoice #", "Next Action", "Notes",
+      "Job #","Customer","Status","Street","City","State","Zip",
+      "System Size (kW)","Panels","Watt/Panel","Inverter","Battery",
+      "Crew","Rep","Financer","Contract Amount","Install Cost",
+      "M1 Due","M1 Received","M2 Due","M2 Received",
+      "Install Date","Inspection Date","Permit Status","Interconnection Status",
+      "Invoice #","Next Action","Notes",
     ];
     const escape = v => {
       const s = v === null || v === undefined ? "" : String(v);
-      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g,'""')}"` : s;
     };
     const rows = sorted.map(j => [
       j.id, j.customer, j.status, j.street, j.city, j.state, j.zip,
-      j.systemSize, j.panelCount || "", j.watt || "", j.inverter, j.battery ? "Yes" : "No",
-      (j.crew || []).join("; "), j.rep, j.financer, j.contractAmount || "", j.installCost || "",
-      j.m1Due ? "Yes" : "No", j.m1Received ? "Yes" : "No",
-      j.m2Due ? "Yes" : "No", j.m2Received ? "Yes" : "No",
+      j.systemSize, j.panelCount||"", j.watt||"", j.inverter, j.battery?"Yes":"No",
+      (j.crew||[]).join("; "), j.rep, j.financer, j.contractAmount||"", j.installCost||"",
+      j.m1Due?"Yes":"No", j.m1Received?"Yes":"No",
+      j.m2Due?"Yes":"No", j.m2Received?"Yes":"No",
       j.installDate, j.inspectionDate, j.permitStatus, j.interconnectionStatus,
       j.invoiceNumber, j.nextAction, j.notes,
     ].map(escape).join(","));
@@ -154,9 +232,7 @@ export default function JobsPage() {
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `solarize-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+    a.href = url; a.download = `solarize-jobs-${new Date().toISOString().slice(0,10)}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -197,7 +273,7 @@ export default function JobsPage() {
 
       {/* Active / Inactive toggle */}
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        {["Active", "Inactive", "All"].map(f => {
+        {["Active","Inactive","All"].map(f => {
           const count = f === "All" ? jobs.length : jobs.filter(j => {
             const bothPaid = j.m1Received && j.m2Received;
             const active = j.active !== false && j.status !== "Fully Paid / Closed" && !bothPaid;
@@ -218,34 +294,25 @@ export default function JobsPage() {
       </div>
 
       {/* Status chips */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        <button
-          onClick={() => setStatusFilter("All")}
-          style={{
-            padding: "5px 12px", borderRadius: 20, border: "0.5px solid var(--border)",
-            background: statusFilter === "All" ? "var(--text-primary)" : "var(--surface)",
-            color: statusFilter === "All" ? "white" : "var(--text-secondary)",
-            fontSize: 12, cursor: "pointer", fontFamily: "var(--font-body)",
-          }}
-        >
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        <button onClick={() => setStatusFilter("All")} style={{
+          padding: "5px 12px", borderRadius: 20, border: "0.5px solid var(--border)",
+          background: statusFilter === "All" ? "var(--text-primary)" : "var(--surface)",
+          color: statusFilter === "All" ? "white" : "var(--text-secondary)",
+          fontSize: 12, cursor: "pointer", fontFamily: "var(--font-body)",
+        }}>
           All ({jobs.length})
         </button>
         {STATUSES.filter(s => counts[s] > 0).map(s => {
           const sc = STATUS_COLORS[s];
           const active = statusFilter === s;
           return (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(active ? "All" : s)}
-              style={{
-                padding: "5px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer",
-                fontFamily: "var(--font-body)", fontWeight: active ? 600 : 400,
-                background: active ? sc.color : sc.bg,
-                color: active ? "white" : sc.color,
-                border: `0.5px solid ${sc.color}44`,
-                display: "flex", alignItems: "center", gap: 5,
-              }}
-            >
+            <button key={s} onClick={() => setStatusFilter(active ? "All" : s)} style={{
+              padding: "5px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer",
+              fontFamily: "var(--font-body)", fontWeight: active ? 600 : 400,
+              background: active ? sc.color : sc.bg, color: active ? "white" : sc.color,
+              border: `0.5px solid ${sc.color}44`, display: "flex", alignItems: "center", gap: 5,
+            }}>
               {s === "Rescheduled / Issue" && <AlertTriangle size={10} />}
               {s} ({counts[s]})
             </button>
@@ -253,23 +320,50 @@ export default function JobsPage() {
         })}
       </div>
 
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
+      {/* Search + filters row */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Search */}
+        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 320 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search name, address, job #..."
-            style={{ width: "100%", paddingLeft: 30 }}
+            placeholder="Search name, address, job #, rep..."
+            style={{ width: "100%", paddingLeft: 30, paddingRight: search ? 28 : 10 }}
           />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", display: "flex" }}>
+              <X size={12} />
+            </button>
+          )}
         </div>
-        <select value={stateFilter} onChange={e => setStateFilter(e.target.value)}>
-          {STATES.map(s => <option key={s} value={s}>{s === "All" ? "All states" : s}</option>)}
-        </select>
-        {(search || statusFilter !== "All" || stateFilter !== "All") && (
-          <button className="btn btn-ghost" onClick={() => { setSearch(""); setStatusFilter("All"); setStateFilter("All"); }}>Clear</button>
+
+        {/* State */}
+        <FilterSelect value={stateFilter} onChange={setStateFilter} options={STATES} placeholder="All states" />
+
+        {/* Crew */}
+        {crewOptions.length > 2 && (
+          <FilterSelect value={crewFilter} onChange={setCrewFilter} options={crewOptions} placeholder="All crew" />
         )}
+
+        {/* Rep */}
+        {repOptions.length > 2 && (
+          <FilterSelect value={repFilter} onChange={setRepFilter} options={repOptions} placeholder="All reps" />
+        )}
+
+        {/* M1 */}
+        <FilterSelect value={m1Filter} onChange={setM1Filter} options={M1_OPTIONS} placeholder="M1: All" />
+
+        {/* M2 */}
+        <FilterSelect value={m2Filter} onChange={setM2Filter} options={M2_OPTIONS} placeholder="M2: All" />
+
+        {/* Clear */}
+        {hasFilters && (
+          <button className="btn btn-ghost" onClick={clearFilters} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <X size={11} /> Clear
+          </button>
+        )}
+
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
           {filtered.length} job{filtered.length !== 1 ? "s" : ""}
         </span>
@@ -309,7 +403,7 @@ export default function JobsPage() {
                         cursor: "grab", userSelect: "none",
                       }}
                     >
-                      <span style={{ cursor: noSort ? "grab" : "pointer" }} onClick={noSort ? undefined : e => { e.stopPropagation(); toggleSort(key); }}>
+                      <span style={{ cursor: noSort ? "grab" : "pointer" }}>
                         {label}
                         {!noSort && sort.col === key && (
                           <span style={{ marginLeft: 4 }}>{sort.dir === "asc" ? "↑" : "↓"}</span>
@@ -324,8 +418,8 @@ export default function JobsPage() {
                 {sorted.map((job, i) => {
                   const sc = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
                   const isIssue = job.status === "Rescheduled / Issue";
-                  const m1 = m1Due(job);
-                  const m2 = m2Due(job);
+                  const jM1Due = m1Due(job);
+                  const jM2Due = m2Due(job);
                   const date = cardDate(job);
                   return (
                     <tr
@@ -335,7 +429,6 @@ export default function JobsPage() {
                         borderBottom: "0.5px solid var(--border)",
                         background: isIssue ? "#fff8f8" : i % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                         cursor: "pointer",
-                        transition: "background 0.1s",
                       }}
                       onMouseEnter={e => e.currentTarget.style.background = "var(--hover)"}
                       onMouseLeave={e => e.currentTarget.style.background = isIssue ? "#fff8f8" : i % 2 === 0 ? "var(--surface)" : "var(--surface-2)"}
@@ -364,7 +457,7 @@ export default function JobsPage() {
                         );
                         if (key === "location") return (
                           <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                            <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{job.state} · {job.city}</div>
+                            <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{job.state}{job.city ? ` · ${job.city}` : ""}</div>
                             <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{job.street}</div>
                           </td>
                         );
@@ -385,9 +478,9 @@ export default function JobsPage() {
                         if (key === "m1m2") return (
                           <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
                             <div style={{ display: "flex", gap: 4 }}>
-                              {m1 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m1Received ? "#d8f3dc" : "#fef3c7", color: job.m1Received ? "#1b4332" : "#78350f" }}>M1 {job.m1Received ? "✓" : "due"}</span>}
-                              {m2 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m2Received ? "#d8f3dc" : "#fef3c7", color: job.m2Received ? "#1b4332" : "#78350f" }}>M2 {job.m2Received ? "✓" : "due"}</span>}
-                              {!m1 && !m2 && <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                              {jM1Due && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m1Received ? "#d8f3dc" : "#fef3c7", color: job.m1Received ? "#1b4332" : "#78350f" }}>M1 {job.m1Received ? "✓" : "due"}</span>}
+                              {jM2Due && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: job.m2Received ? "#d8f3dc" : "#fef3c7", color: job.m2Received ? "#1b4332" : "#78350f" }}>M2 {job.m2Received ? "✓" : "due"}</span>}
+                              {!jM1Due && !jM2Due && <span style={{ color: "var(--text-tertiary)" }}>—</span>}
                             </div>
                           </td>
                         );

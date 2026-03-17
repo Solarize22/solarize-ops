@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
 import { useAllJobs, jobsToSchedule } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
+import Link from "next/link";
 import { Search, MapPin, Clock, Users } from "lucide-react";
 
 const TYPES = ["All", "Install", "Inspection", "Service"];
@@ -121,7 +122,7 @@ export default function SchedulingPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                         <span className={`badge ${statusBadgeClass(item.type)}`}>{item.type}</span>
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>{item.customer}</span>
+                        <Link href={`/jobs/${item.jobId || item.id}`} style={{ fontWeight: 600, fontSize: 14, color: "inherit", textDecoration: "none" }}>{item.customer}</Link>
                         <span className="mono badge badge-slate">{item.id}</span>
                       </div>
                       <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-secondary)", flexWrap: "wrap" }}>
