@@ -169,6 +169,48 @@ export async function PATCH(req) {
   return NextResponse.json(jobs[idx]);
 }
 
+// ── PUT /api/jobs — bulk update existing jobs (overwrite non-blank fields) ────
+export async function PUT(req) {
+  const incoming = await req.json(); // array of job objects keyed by id
+  const notFound = [];
+  let updated = 0;
+
+  if (USE_DB) {
+    const sql = await getDb();
+    await ensureTable(sql);
+    for (const job of incoming) {
+      const rows = await sql`SELECT data FROM jobs WHERE id = ${job.id}`;
+      if (!rows.length) { notFound.push(job.id); continue; }
+      const existing = rows[0].data;
+      const isEmpty = v => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+      const merged = { ...existing };
+      for (const [k, v] of Object.entries(job)) {
+        if (!isEmpty(v)) merged[k] = v; // overwrite with non-blank incoming
+      }
+      await sql`UPDATE jobs SET data = ${JSON.stringify(merged)}::jsonb WHERE id = ${job.id}`;
+      updated++;
+    }
+    return NextResponse.json({ updated, notFound, total: incoming.length });
+  }
+
+  // File fallback
+  const jobs = readFile() || [];
+  const map = new Map(jobs.map(j => [j.id, j]));
+  const isEmpty = v => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+  for (const job of incoming) {
+    if (!map.has(job.id)) { notFound.push(job.id); continue; }
+    const existing = map.get(job.id);
+    const merged = { ...existing };
+    for (const [k, v] of Object.entries(job)) {
+      if (!isEmpty(v)) merged[k] = v;
+    }
+    map.set(job.id, merged);
+    updated++;
+  }
+  writeFile([...map.values()]);
+  return NextResponse.json({ updated, notFound, total: incoming.length });
+}
+
 // ── DELETE /api/jobs — clear all ─────────────────────────────────────────────
 export async function DELETE() {
   if (USE_DB) {
