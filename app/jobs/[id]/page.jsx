@@ -247,7 +247,7 @@ export default function JobDetailPage() {
   const m1Amount  = Math.round(total * 0.8);
   const m2Amount  = total - m1Amount;
   const m1IsDue   = job.m1Due || ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
-  const m2IsDue   = job.m2Due || ["Inspection Passed","Fully Paid / Closed"].includes(job.status);
+  const m2IsDue   = job.m2Due || job.m1Received || ["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status) || !!job.inspectionDate;
   const willClose = payConfirm && ((payConfirm.type === "m2" && job.m1Received) || (payConfirm.type === "m1" && job.m2Received));
   const fmt$      = v => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(v || 0);
 
