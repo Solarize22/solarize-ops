@@ -8,7 +8,6 @@ import {
   CalendarDays,
   ClipboardList,
   DollarSign,
-  FileText,
   Home,
   Wrench,
   Upload,
@@ -17,7 +16,6 @@ import {
 const navItems = [
   { href: "/",           label: "Dashboard",  icon: Home },
   { href: "/jobs",       label: "Jobs",       icon: ClipboardList },
-  { href: "/permits",    label: "Permits",    icon: FileText },
   { href: "/scheduling", label: "Scheduling", icon: CalendarDays },
   { href: "/invoices",   label: "Invoices",   icon: DollarSign },
   { href: "/service",    label: "Service",    icon: Wrench },
