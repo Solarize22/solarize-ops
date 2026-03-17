@@ -8,39 +8,53 @@ import Link from "next/link";
 import { Search, MapPin, Clock, Users } from "lucide-react";
 
 const TYPES = ["All", "Install", "Inspection", "Service"];
-const STATUSES = ["All", "Confirmed", "Tentative", "Cancelled"];
+
+const today = new Date().toISOString().slice(0, 10);
 
 export default function SchedulingPage() {
   const allJobs = useAllJobs();
-  const scheduleItems = useMemo(() => jobsToSchedule(allJobs), [allJobs]);
+  // Only show items that have a date set
+  const scheduleItems = useMemo(
+    () => jobsToSchedule(allJobs).filter(i => !!i.date),
+    [allJobs]
+  );
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [timeFilter, setTimeFilter] = useState("Future");
 
   const filtered = useMemo(() => {
     return scheduleItems.filter(item => {
-      const text = [item.id, item.customer, item.site, item.crew.join(" "), item.type].join(" ").toLowerCase();
-      const matchSearch = text.includes(search.toLowerCase());
+      const text = [item.customer, item.site, item.crew.join(" "), item.type].join(" ").toLowerCase();
+      const matchSearch = !search || text.includes(search.toLowerCase());
       const matchType = typeFilter === "All" || item.type === typeFilter;
-      const matchStatus = statusFilter === "All" || item.status === statusFilter;
-      return matchSearch && matchType && matchStatus;
+      const matchTime =
+        timeFilter === "All"    ? true :
+        timeFilter === "Future" ? item.date >= today :
+        /* Past */                item.date < today;
+      return matchSearch && matchType && matchTime;
     });
-  }, [search, typeFilter, statusFilter]);
+  }, [scheduleItems, search, typeFilter, timeFilter]);
 
-  // Group by date
+  // Group by date, sorted asc for future, desc for past
   const grouped = useMemo(() => {
     const map = {};
     filtered.forEach(item => {
       if (!map[item.date]) map[item.date] = [];
       map[item.date].push(item);
     });
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [filtered]);
+    const entries = Object.entries(map);
+    return timeFilter === "Past"
+      ? entries.sort(([a], [b]) => b.localeCompare(a))   // newest first for past
+      : entries.sort(([a], [b]) => a.localeCompare(b));  // soonest first for future
+  }, [filtered, timeFilter]);
 
-  const installs = scheduleItems.filter(s => s.type === "Install").length;
+  const futureCount = scheduleItems.filter(i => i.date >= today).length;
+  const pastCount   = scheduleItems.filter(i => i.date < today).length;
+  const installs    = scheduleItems.filter(s => s.type === "Install").length;
   const inspections = scheduleItems.filter(s => s.type === "Inspection").length;
-  const services = scheduleItems.filter(s => s.type === "Service").length;
-  const confirmed = scheduleItems.filter(s => s.status === "Confirmed").length;
+  const services    = scheduleItems.filter(s => s.type === "Service").length;
+
+  const hasFilters = search || typeFilter !== "All" || timeFilter !== "Future";
 
   return (
     <AppShell>
@@ -51,27 +65,28 @@ export default function SchedulingPage() {
 
       <div className="stat-grid">
         <div className="stat-card">
+          <div className="stat-label">Upcoming</div>
+          <div className="stat-value" style={{ color: "var(--green)" }}>{futureCount}</div>
+          <div className="stat-detail">Future events</div>
+        </div>
+        <div className="stat-card">
           <div className="stat-label">Installs</div>
           <div className="stat-value">{installs}</div>
-          <div className="stat-detail">Scheduled installs</div>
+          <div className="stat-detail">Total scheduled</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Inspections</div>
           <div className="stat-value">{inspections}</div>
-          <div className="stat-detail">Town or AHJ inspections</div>
+          <div className="stat-detail">Total scheduled</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Service visits</div>
           <div className="stat-value">{services}</div>
-          <div className="stat-detail">Scheduled service calls</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Confirmed</div>
-          <div className="stat-value" style={{ color: "var(--green)" }}>{confirmed}</div>
-          <div className="stat-detail">Locked in</div>
+          <div className="stat-detail">Total scheduled</div>
         </div>
       </div>
 
+      {/* Filters */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
@@ -82,21 +97,44 @@ export default function SchedulingPage() {
             style={{ width: "100%", paddingLeft: 30 }}
           />
         </div>
+
+        {/* Future / Past toggle */}
+        <div style={{ display: "flex", background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: 3, gap: 2 }}>
+          {["Future", "Past", "All"].map(t => (
+            <button
+              key={t}
+              onClick={() => setTimeFilter(t)}
+              style={{
+                padding: "5px 14px",
+                borderRadius: "var(--radius-sm)",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: "var(--font-body)",
+                background: timeFilter === t ? "var(--text-primary)" : "transparent",
+                color: timeFilter === t ? "white" : "var(--text-secondary)",
+                transition: "background .15s",
+              }}
+            >
+              {t}{t === "Future" ? ` (${futureCount})` : t === "Past" ? ` (${pastCount})` : ""}
+            </button>
+          ))}
+        </div>
+
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
           {TYPES.map(t => <option key={t} value={t}>{t === "All" ? "All types" : t}</option>)}
         </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          {STATUSES.map(s => <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>)}
-        </select>
-        {(search || typeFilter !== "All" || statusFilter !== "All") && (
-          <button className="btn btn-ghost" onClick={() => { setSearch(""); setTypeFilter("All"); setStatusFilter("All"); }}>
+
+        {hasFilters && (
+          <button className="btn btn-ghost" onClick={() => { setSearch(""); setTypeFilter("All"); setTimeFilter("Future"); }}>
             Clear
           </button>
         )}
       </div>
 
       {grouped.length === 0 && (
-        <div className="card empty-state">No schedule items match your filters.</div>
+        <div className="card empty-state">No {timeFilter === "Future" ? "upcoming" : timeFilter === "Past" ? "past" : ""} schedule items{typeFilter !== "All" ? ` of type "${typeFilter}"` : ""}.</div>
       )}
 
       {/* Timeline grouped by date */}
@@ -123,12 +161,11 @@ export default function SchedulingPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                         <span className={`badge ${statusBadgeClass(item.type)}`}>{item.type}</span>
                         <Link href={`/jobs/${item.jobId || item.id}`} style={{ fontWeight: 600, fontSize: 14, color: "inherit", textDecoration: "none" }}>{item.customer}</Link>
-                        <span className="mono badge badge-slate">{item.id}</span>
                       </div>
                       <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-secondary)", flexWrap: "wrap" }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={11} />{item.site}</span>
+                        {item.site && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={11} />{item.site}</span>}
                         <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Clock size={11} />{item.startTime} · {item.duration}</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Users size={11} />{item.crew.join(", ")}</span>
+                        {item.crew.length > 0 && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Users size={11} />{item.crew.join(", ")}</span>}
                       </div>
                     </div>
                     <span className={`badge ${statusBadgeClass(item.status)}`}>{item.status}</span>
