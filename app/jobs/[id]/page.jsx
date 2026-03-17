@@ -205,14 +205,38 @@ export default function JobDetailPage() {
     setTimeout(() => setTlSaved(false), 3000);
   }
 
-  function toggleM1() { if (!job.m1Received) setPayConfirm({ type: "m1" }); else applyUpdate({ m1Received: false }); }
-  function toggleM2() { if (!job.m2Received) setPayConfirm({ type: "m2" }); else applyUpdate({ m2Received: false }); }
+  function toggleM1() {
+    if (!job.m1Received) {
+      setPayConfirm({ type: "m1" });
+    } else {
+      // Unmarking M1: revert status if job was closed
+      const updates = { m1Received: false };
+      if (job.status === "Fully Paid / Closed") updates.status = "Inspection Passed";
+      applyUpdate(updates);
+    }
+  }
+  function toggleM2() {
+    if (!job.m2Received) {
+      setPayConfirm({ type: "m2" });
+    } else {
+      // Unmarking M2: revert status if job was closed
+      const updates = { m2Received: false };
+      if (job.status === "Fully Paid / Closed") updates.status = "Inspection Passed";
+      applyUpdate(updates);
+    }
+  }
 
   function confirmPayment() {
     const { type } = payConfirm;
-    const updates = { [type === "m1" ? "m1Received" : "m2Received"]: true };
-    const willClose = (type === "m2" && job.m1Received) || (type === "m1" && job.m2Received);
-    if (willClose) { updates.status = "Fully Paid / Closed"; updates.active = false; }
+    const isM1 = type === "m1";
+    const updates = isM1
+      ? { m1Received: true, m1Due: true }
+      : { m2Received: true, m2Due: true };
+    const willClose = isM1 ? job.m2Received : job.m1Received;
+    if (willClose) {
+      updates.status = "Fully Paid / Closed";
+      updates.active = false;
+    }
     applyUpdate(updates);
     setPayConfirm(null);
   }
@@ -567,23 +591,4 @@ export default function JobDetailPage() {
     );
   }
 
-  function PayCard({ label, pct, amount, isDue, received, onToggle }) {
-    return (
-      <div style={{ borderRadius: "var(--radius-md)", padding: "14px 16px", background: isDue ? (received ? "#d8f3dc" : "#fef9c3") : "var(--surface-2)", border: `1px solid ${isDue ? (received ? "#bbf7d0" : "#fde68a") : "var(--border)"}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>{label} — {pct}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2 }}>{fmt$(amount)}</div>
-          </div>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: received ? "#16a34a" : isDue ? "#f59e0b" : "#e2e8f0", color: received || isDue ? "white" : "var(--text-secondary)" }}>
-            {received ? "Paid" : isDue ? "Due" : "Pending"}
-          </span>
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: isDue ? 10 : 0 }}>
-          {isDue ? (received ? "Payment received" : (label === "M1" ? "Triggered by Install Complete" : "Triggered by Inspection Passed")) : (label === "M1" ? "Due when install is marked complete" : "Due when inspection passes")}
-        </div>
-        {isDue && <button onClick={onToggle} style={{ width: "100%", padding: "6px", borderRadius: "var(--radius-sm)", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)", background: received ? "#15803d" : "var(--text-primary)", color: "white" }}>{received ? "✓ Received" : "Mark received"}</button>}
-      </div>
-    );
-  }
 }
