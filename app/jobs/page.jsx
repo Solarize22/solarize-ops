@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { formatCurrency } from "@/lib/utils";
 import { Search, ChevronRight, Plus, AlertTriangle, Download, X } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
+import { useUserRole } from "@/lib/useUserRole";
 
 const STATUSES = [
   "Scheduled",
@@ -84,6 +85,7 @@ function FilterSelect({ value, onChange, options, placeholder }) {
 }
 
 export default function JobsPage() {
+  const { canSeeFinancials, loading: roleLoading } = useUserRole();
   const [jobs, setJobs] = useState([]);
 
   useEffect(() => {
@@ -103,7 +105,7 @@ export default function JobsPage() {
   const [period, setPeriod]             = useState("All time");
   const [activeFilter, setActiveFilter] = useState("Active");
   const [sort, setSort]                 = useState({ col: "date", dir: "desc" });
-  const [columns, setColumns] = useState([
+  const baseColumns = [
     { key: "customer", label: "Customer" },
     { key: "id",       label: "Job #" },
     { key: "status",   label: "Status" },
@@ -111,10 +113,19 @@ export default function JobsPage() {
     { key: "system",   label: "System" },
     { key: "crew",     label: "Crew" },
     { key: "rep",      label: "Rep" },
-    { key: "m1m2",     label: "M1 / M2", noSort: true },
+    { key: "m1m2",     label: "M1 / M2", noSort: true, ownerOnly: true },
     { key: "date",     label: "Date" },
     { key: "next",     label: "Next action", noSort: true },
-  ]);
+  ];
+
+  const [columns, setColumns] = useState(baseColumns);
+
+  // Update columns when role loads
+  useEffect(() => {
+    if (roleLoading) return;
+    setColumns(baseColumns.filter(c => !c.ownerOnly || canSeeFinancials));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSeeFinancials, roleLoading]);
   const dragCol = useRef(null);
 
   // Derived filter options from actual job data
@@ -199,7 +210,8 @@ export default function JobsPage() {
   }
 
   const hasFilters = search || statusFilter !== "All" || stateFilter !== "All" ||
-    crewFilter !== "All" || repFilter !== "All" || m1Filter !== "All" || m2Filter !== "All";
+    crewFilter !== "All" || repFilter !== "All" ||
+    (canSeeFinancials && (m1Filter !== "All" || m2Filter !== "All"));
 
   function clearFilters() {
     setSearch(""); setStatusFilter("All"); setStateFilter("All");
@@ -351,11 +363,15 @@ export default function JobsPage() {
           <FilterSelect value={repFilter} onChange={setRepFilter} options={repOptions} placeholder="All reps" />
         )}
 
-        {/* M1 */}
-        <FilterSelect value={m1Filter} onChange={setM1Filter} options={M1_OPTIONS} placeholder="M1: All" />
+        {/* M1 — owner only */}
+        {canSeeFinancials && (
+          <FilterSelect value={m1Filter} onChange={setM1Filter} options={M1_OPTIONS} placeholder="M1: All" />
+        )}
 
-        {/* M2 */}
-        <FilterSelect value={m2Filter} onChange={setM2Filter} options={M2_OPTIONS} placeholder="M2: All" />
+        {/* M2 — owner only */}
+        {canSeeFinancials && (
+          <FilterSelect value={m2Filter} onChange={setM2Filter} options={M2_OPTIONS} placeholder="M2: All" />
+        )}
 
         {/* Clear */}
         {hasFilters && (

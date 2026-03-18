@@ -11,20 +11,47 @@ import {
   Home,
   Wrench,
   Upload,
+  Shield,
 } from "lucide-react";
+import { UserRoleProvider, useUserRole } from "@/lib/useUserRole";
 
-const navItems = [
-  { href: "/",           label: "Dashboard",  icon: Home },
-  { href: "/jobs",       label: "Jobs",       icon: ClipboardList },
-  { href: "/scheduling", label: "Scheduling", icon: CalendarDays },
-  { href: "/invoices",   label: "Invoices",   icon: DollarSign },
-  { href: "/service",    label: "Service",    icon: Wrench },
-  { href: "/reports",    label: "Reports",    icon: BarChart3 },
-  { href: "/import",     label: "Import jobs", icon: Upload },
+const ALL_NAV = [
+  { href: "/",           label: "Dashboard",      icon: Home,          roles: null },
+  { href: "/jobs",       label: "Jobs",            icon: ClipboardList, roles: null },
+  { href: "/scheduling", label: "Scheduling",      icon: CalendarDays,  roles: ["owner","admin","installer"] },
+  { href: "/invoices",   label: "Invoices",        icon: DollarSign,    roles: ["owner"] },
+  { href: "/service",    label: "Service",         icon: Wrench,        roles: ["owner","admin","installer"] },
+  { href: "/reports",    label: "Reports",         icon: BarChart3,     roles: ["owner","admin"] },
+  { href: "/import",     label: "Import jobs",     icon: Upload,        roles: ["owner","admin"] },
+  { href: "/admin",      label: "Admin & Settings", icon: Shield,       roles: ["owner"] },
 ];
 
-export default function AppShell({ children }) {
+function RoleBadge({ role }) {
+  const colors = {
+    owner:       { bg: "#fef3c7", color: "#92400e" },
+    admin:       { bg: "#dbeafe", color: "#1e40af" },
+    installer:   { bg: "#d1fae5", color: "#065f46" },
+    salesperson: { bg: "#ede9fe", color: "#5b21b6" },
+  };
+  const c = colors[role] || colors.installer;
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+      background: c.bg, color: c.color, textTransform: "capitalize",
+    }}>
+      {role}
+    </span>
+  );
+}
+
+function SidebarContent({ children }) {
   const pathname = usePathname();
+  const { user, loading, role, isOwner } = useUserRole();
+
+  const navItems = ALL_NAV.filter(item => {
+    if (!item.roles) return true;
+    return item.roles.includes(role);
+  });
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", minHeight: "100vh" }}>
@@ -56,7 +83,8 @@ export default function AppShell({ children }) {
         {/* Nav */}
         <nav style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
           {navItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
+            const active = pathname === href || (href !== "/" && pathname.startsWith(href));
+            const isAdmin = href === "/admin";
             return (
               <Link
                 key={href}
@@ -69,16 +97,16 @@ export default function AppShell({ children }) {
                   borderRadius: "var(--radius-md)",
                   fontSize: 13,
                   fontWeight: active ? 500 : 400,
-                  color: active ? "white" : "var(--text-secondary)",
-                  background: active ? "var(--text-primary)" : "transparent",
+                  color: active ? "white" : isAdmin ? "#f59e0b" : "var(--text-secondary)",
+                  background: active ? (isAdmin ? "#92400e" : "var(--text-primary)") : "transparent",
                   textDecoration: "none",
                   transition: "all 0.12s ease",
-                  marginTop: label === "Import CSV" ? 8 : 0,
-                  borderTop: label === "Import CSV" ? "1px solid var(--border)" : "none",
-                  paddingTop: label === "Import CSV" ? 10 : 8,
+                  marginTop: label === "Import jobs" ? 8 : isAdmin ? 4 : 0,
+                  borderTop: label === "Import jobs" ? "1px solid var(--border)" : isAdmin ? "1px solid var(--border)" : "none",
+                  paddingTop: (label === "Import jobs" || isAdmin) ? 10 : 8,
                 }}
-                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "var(--surface-2)"; e.currentTarget.style.color = "var(--text-primary)"; }}}
-                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}}
+                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = isAdmin ? "#fef3c744" : "var(--surface-2)"; e.currentTarget.style.color = isAdmin ? "#f59e0b" : "var(--text-primary)"; }}}
+                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = isAdmin ? "#f59e0b" : "var(--text-secondary)"; }}}
               >
                 <Icon size={15} />
                 {label}
@@ -87,9 +115,32 @@ export default function AppShell({ children }) {
           })}
         </nav>
 
+        {/* User info */}
+        {!loading && user && (
+          <div style={{
+            marginTop: 8,
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "10px 12px",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
+                {user.name || user.email || "User"}
+              </div>
+              <RoleBadge role={role} />
+            </div>
+            {user.email && (
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {user.email}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Today's focus */}
         <div style={{
-          marginTop: 12,
+          marginTop: 8,
           background: "var(--surface-2)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-lg)",
@@ -97,7 +148,11 @@ export default function AppShell({ children }) {
         }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Today's focus</div>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            Keep installs moving, resolve issues, and chase down missing M2 payments.
+            {role === "installer"
+              ? "Check your assigned jobs and update install status."
+              : role === "salesperson"
+              ? "Track your leads and keep the pipeline moving."
+              : "Keep installs moving, resolve issues, and chase down missing M2 payments."}
           </div>
         </div>
       </aside>
@@ -107,5 +162,13 @@ export default function AppShell({ children }) {
         {children}
       </main>
     </div>
+  );
+}
+
+export default function AppShell({ children }) {
+  return (
+    <UserRoleProvider>
+      <SidebarContent>{children}</SidebarContent>
+    </UserRoleProvider>
   );
 }

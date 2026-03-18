@@ -1,22 +1,27 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { useAllJobs, jobsToInvoices } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import Link from "next/link";
-import { Search, AlertCircle } from "lucide-react";
+import { Search, AlertCircle, Lock } from "lucide-react";
+import { useUserRole } from "@/lib/useUserRole";
 
 const STATUSES = ["All", "Paid", "Pending", "Overdue"];
 const TYPES = ["All", "M1", "M2"];
 
 export default function InvoicesPage() {
+  const router = useRouter();
+  const { loading: roleLoading, isOwner } = useUserRole();
   const allJobs = useAllJobs();
   const invoices = useMemo(() => jobsToInvoices(allJobs), [allJobs]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
 
+  // Must be before any early returns — hooks must always run in the same order
   const filtered = useMemo(() => {
     return invoices.filter(inv => {
       const text = [inv.customer, inv.id, inv.jobId, inv.financer].join(" ").toLowerCase();
@@ -25,7 +30,34 @@ export default function InvoicesPage() {
       const matchType = typeFilter === "All" || inv.type === typeFilter;
       return matchSearch && matchStatus && matchType;
     });
-  }, [search, statusFilter, typeFilter]);
+  }, [invoices, search, statusFilter, typeFilter]);
+
+  // Redirect non-owners
+  useEffect(() => {
+    if (!roleLoading && !isOwner) router.replace("/");
+  }, [roleLoading, isOwner, router]);
+
+  if (roleLoading) {
+    return (
+      <AppShell>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "var(--text-tertiary)" }}>
+          Loading…
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!isOwner) {
+    return (
+      <AppShell>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, gap: 12, color: "var(--text-tertiary)" }}>
+          <Lock size={32} />
+          <div style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Access restricted</div>
+          <div style={{ fontSize: 13 }}>Invoice data is only visible to owners.</div>
+        </div>
+      </AppShell>
+    );
+  }
 
   const paid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0);
   const pending = invoices.filter(i => i.status === "Pending").reduce((s, i) => s + i.amount, 0);

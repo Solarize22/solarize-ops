@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { jobs as staticJobs } from "@/lib/data";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { getOrCreateUser } from "@/lib/users";
 
 // ─── Neon (production) vs file (local dev) ───────────────────────────────────
 const USE_DB = !!process.env.POSTGRES_URL;
@@ -47,12 +49,10 @@ async function dbGetAll(sql) {
 async function dbUpsertMany(sql, jobs) {
   if (!jobs.length) return { added: 0, updated: 0 };
   let added = 0, updated = 0;
-  // Get existing ids
   const existing = await sql`SELECT id FROM jobs`;
   const existingIds = new Set(existing.map(r => r.id));
   for (const job of jobs) {
     if (existingIds.has(job.id)) {
-      // Merge: only fill blank fields
       await sql`
         UPDATE jobs
         SET data = (
@@ -104,27 +104,73 @@ function mergeJobs(existing, incoming) {
   return { jobs: [...map.values()], added, updated };
 }
 
+// ── RBAC helpers ─────────────────────────────────────────────────────────────
+
+// Financial fields that non-owners should NOT see
+const FINANCIAL_FIELDS = [
+  "m1Amount", "m2Amount", "contractAmount", "installCost", "invoiceNumber",
+];
+
+function stripFinancial(job) {
+  const stripped = { ...job };
+  for (const f of FINANCIAL_FIELDS) delete stripped[f];
+  return stripped;
+}
+
+async function getCallerRole() {
+  try {
+    const { userId } = await auth();
+    if (!userId) return { role: "installer", name: null };
+    const clerkUser = await currentUser();
+    const email = clerkUser?.emailAddresses?.[0]?.emailAddress || "";
+    const name  = [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || "User";
+    const user  = await getOrCreateUser(userId, { email, name });
+    return { role: user.role, name: user.name, user };
+  } catch {
+    return { role: "installer", name: null };
+  }
+}
+
+function applyRoleFilter(jobs, role, callerName) {
+  // Installer: only see jobs where their name is in crew
+  if (role === "installer" && callerName) {
+    jobs = jobs.filter(j => (j.crew || []).some(
+      c => c.trim().toLowerCase() === callerName.trim().toLowerCase()
+    ));
+  }
+
+  // Non-owners: strip financial data
+  if (role !== "owner") {
+    jobs = jobs.map(stripFinancial);
+  }
+
+  return jobs;
+}
+
 // ── GET /api/jobs ─────────────────────────────────────────────────────────────
 export async function GET() {
+  const { role, name } = await getCallerRole();
+
+  let jobs;
   if (USE_DB) {
     const sql = await getDb();
     await ensureTable(sql);
-    let jobs = await dbGetAll(sql);
+    jobs = await dbGetAll(sql);
     if (jobs.length === 0) {
-      // First run — seed from static jobs
       for (const j of staticJobs) {
         await sql`INSERT INTO jobs (id, data) VALUES (${j.id}, ${JSON.stringify(j)}::jsonb) ON CONFLICT (id) DO NOTHING`;
       }
       jobs = await dbGetAll(sql);
     }
-    return NextResponse.json(jobs);
+  } else {
+    jobs = readFile();
+    if (!jobs) {
+      jobs = staticJobs.map(j => ({ ...j }));
+      writeFile(jobs);
+    }
   }
-  // Local file fallback
-  let jobs = readFile();
-  if (!jobs) {
-    jobs = staticJobs.map(j => ({ ...j }));
-    writeFile(jobs);
-  }
+
+  jobs = applyRoleFilter(jobs, role, name);
   return NextResponse.json(jobs);
 }
 
@@ -136,7 +182,6 @@ export async function POST(req) {
     await ensureTable(sql);
     const existing = await dbGetAll(sql);
     const { jobs: merged, added, updated } = mergeJobs(existing, incoming);
-    // Write back only changed ones
     for (const job of merged) {
       await sql`
         INSERT INTO jobs (id, data) VALUES (${job.id}, ${JSON.stringify(job)}::jsonb)
@@ -171,7 +216,7 @@ export async function PATCH(req) {
 
 // ── PUT /api/jobs — bulk update existing jobs (overwrite non-blank fields) ────
 export async function PUT(req) {
-  const incoming = await req.json(); // array of job objects keyed by id
+  const incoming = await req.json();
   const notFound = [];
   let updated = 0;
 
@@ -185,7 +230,7 @@ export async function PUT(req) {
       const isEmpty = v => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
       const merged = { ...existing };
       for (const [k, v] of Object.entries(job)) {
-        if (!isEmpty(v)) merged[k] = v; // overwrite with non-blank incoming
+        if (!isEmpty(v)) merged[k] = v;
       }
       await sql`UPDATE jobs SET data = ${JSON.stringify(merged)}::jsonb WHERE id = ${job.id}`;
       updated++;
@@ -193,7 +238,6 @@ export async function PUT(req) {
     return NextResponse.json({ updated, notFound, total: incoming.length });
   }
 
-  // File fallback
   const jobs = readFile() || [];
   const map = new Map(jobs.map(j => [j.id, j]));
   const isEmpty = v => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
