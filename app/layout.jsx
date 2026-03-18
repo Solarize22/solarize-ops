@@ -1,5 +1,6 @@
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
+import { UserRoleProvider } from "@/lib/useUserRole";
 
 export const metadata = {
   title: "Solarize Home Energy",
@@ -15,7 +16,9 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <ClerkProvider>
-          {children}
+          <UserRoleProvider>
+            {children}
+          </UserRoleProvider>
         </ClerkProvider>
       </body>
     </html>
