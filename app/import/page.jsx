@@ -139,6 +139,88 @@ function mapToJob(row, index) {
   };
 }
 
+// ── Update mapper: only includes fields actually present in CSV ──────────────
+// Used for "Update existing jobs" mode — never applies defaults, never blanks
+// existing data. mapToJob is used for import only.
+function mapToJobUpdate(row) {
+  const val = (...keys) => {
+    for (const k of keys) if (row[k] !== undefined && row[k] !== "") return row[k];
+    return null;
+  };
+  const has = (...keys) => keys.some(k => row[k] !== undefined && row[k] !== "");
+  const money = v => parseFloat((v || "").replace(/[$,]/g, "")) || 0;
+  const bool  = v => ["yes", "true", "1", "x"].includes((v || "").toLowerCase().trim());
+
+  const jobId = val("job_id", "job_#", "job_number", "id", "job#", "project_id");
+  if (!jobId) return null;
+
+  const result = { id: jobId };
+
+  // Text fields — only set if CSV cell is non-empty
+  if (has("customer","customer_name","homeowner","name")) result.customer   = val("customer","customer_name","homeowner","name");
+  if (has("phone","phone_number"))                        result.phone       = val("phone","phone_number");
+  if (has("email","email_address"))                       result.email       = val("email","email_address");
+  if (has("street","street_address"))                     result.street      = val("street","street_address");
+  if (has("city"))                                        result.city        = val("city");
+  if (has("state","market"))                              result.state       = val("state","market");
+  if (has("zip","zipcode","zip_code"))                    result.zip         = val("zip","zipcode","zip_code");
+  if (has("rep","salesperson"))                           result.rep         = val("rep","salesperson");
+  if (has("financer","finance"))                          result.financer    = val("financer","finance");
+  if (has("partner","build_partner"))                     result.partner     = val("partner","build_partner");
+  if (has("invoice_number","invoice_#","invoice"))        result.invoiceNumber = val("invoice_number","invoice_#","invoice");
+  if (has("utility_company","utility"))                   result.utilityCompany = val("utility_company","utility");
+  if (has("inverter"))                                    result.inverter    = val("inverter");
+  if (has("roof_type"))                                   result.roofType    = val("roof_type");
+  if (has("system_size_kw","system_size","kw"))           result.systemSize  = val("system_size_kw","system_size","kw");
+  if (has("next_action","remaining_work"))                result.nextAction  = val("next_action","remaining_work");
+  if (has("notes","additional_notes"))                    result.notes       = [val("notes"), val("additional_notes")].filter(Boolean).join(" ").trim();
+  if (has("permit_status"))                               result.permitStatus = val("permit_status");
+
+  // Status — only if explicitly provided
+  const rawStatus = val("status");
+  if (rawStatus) {
+    result.status =
+      VALID_STATUSES.find(s => s.toLowerCase() === rawStatus.toLowerCase()) ||
+      STATUS_MAP[rawStatus.toLowerCase().replace(/[\s/]+/g, "_")] ||
+      rawStatus;
+  }
+
+  // Dates — only if present
+  if (has("install_date","due_date"))    result.installDate    = val("install_date","due_date");
+  if (has("inspection_date","inspection")) result.inspectionDate = val("inspection_date","inspection");
+
+  // Crew — only if present
+  if (has("crew","crew_members")) {
+    const raw = val("crew","crew_members");
+    result.crew = raw ? raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean) : [];
+  }
+
+  // Amounts — only if present and > 0
+  if (has("m1_amount","m1_amt")) {
+    const v = money(val("m1_amount","m1_amt"));
+    if (v > 0) result.m1Amount = v;
+  }
+  if (has("m2_amount","m2_amt")) {
+    const v = money(val("m2_amount","m2_amt"));
+    if (v > 0) result.m2Amount = v;
+  }
+  if (result.m1Amount || result.m2Amount) {
+    result.contractAmount = (result.m1Amount || 0) + (result.m2Amount || 0);
+  }
+
+  // Payment flags — only if explicitly present
+  if (has("m1_received","m1_paid")) result.m1Received = bool(val("m1_received","m1_paid"));
+  if (has("m2_received","m2_paid")) result.m2Received = bool(val("m2_received","m2_paid"));
+
+  // Numeric fields — only if present and non-zero
+  const panelCount = parseInt(val("panel_count","panels") || "0") || 0;
+  if (panelCount) result.panelCount = panelCount;
+  const watt = parseInt(val("watt","watt_per_panel","watts") || "0") || 0;
+  if (watt) result.watt = watt;
+
+  return result;
+}
+
 const TEMPLATE_HEADERS = [
   "job_id","customer","phone","email",
   "street","city","state","zip",
@@ -193,7 +275,9 @@ export default function ImportPage() {
     const rawRows = parseCSV(text);
     if (!rawRows.length) return;
 
-    const mapped = rawRows.map((r, i) => mapToJob(r, i));
+    const mapped = mode === "update"
+      ? rawRows.map(r => mapToJobUpdate(r)).filter(Boolean)
+      : rawRows.map((r, i) => mapToJob(r, i));
 
     // Fetch existing jobs to check for duplicates / matches
     const existing = await fetch("/api/jobs").then(r => r.json()).catch(() => []);
@@ -208,7 +292,7 @@ export default function ImportPage() {
         return { ...job, _status: "valid" };
       } else {
         // update mode
-        if (!job.id || job.id.startsWith("IMPORT-")) return { ...job, _status: "error", _reason: "Missing job number" };
+        if (!job.id) return { ...job, _status: "error", _reason: "Missing job number" };
         if (!existingIds.has(job.id)) return { ...job, _status: "unmatched", _reason: "Job number not found" };
         return { ...job, _status: "matched" };
       }
