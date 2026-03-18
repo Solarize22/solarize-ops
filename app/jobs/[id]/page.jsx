@@ -243,9 +243,10 @@ export default function JobDetailPage() {
 
   const sc        = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
   const isIssue   = job.status === "Rescheduled / Issue";
-  const total     = job.contractAmount || job.installCost || 0;
-  const m1Amount  = Math.round(total * 0.8);
-  const m2Amount  = total - m1Amount;
+  // M1/M2 are the source of truth; contractAmount derived from their sum
+  const m1Amount  = job.m1Amount || 0;
+  const m2Amount  = job.m2Amount || 0;
+  const total     = (m1Amount + m2Amount) || job.contractAmount || job.installCost || 0;
   const m1IsDue   = job.m1Due || ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
   const m2IsDue   = job.m2Due || job.m1Received || ["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status) || !!job.inspectionDate;
   const willClose = payConfirm && ((payConfirm.type === "m2" && job.m1Received) || (payConfirm.type === "m1" && job.m2Received));
@@ -274,7 +275,7 @@ export default function JobDetailPage() {
     );
   }
 
-  function PayCard({ label, pct, amount, isDue, received, onToggle }) {
+  function PayCard({ label, amount, isDue, received, onToggle }) {
     return (
       <div style={{
         borderRadius: "var(--radius-md)", padding: "14px 16px",
@@ -283,7 +284,7 @@ export default function JobDetailPage() {
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>{label} — {pct}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
             <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2 }}>{fmt$(amount)}</div>
           </div>
           <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: received ? "#16a34a" : isDue ? "#f59e0b" : "#e2e8f0", color: received || isDue ? "white" : "var(--text-secondary)" }}>
@@ -472,9 +473,21 @@ export default function JobDetailPage() {
         </div>
 
         {/* M1 / M2 */}
+        {/* M1 / M2 amounts — editable when in edit mode */}
+        {editing && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <EditField label="M1 Amount ($)" name="m1Amount" value={job.m1Amount} onChange={handleChange} type="number" />
+            <EditField label="M2 Amount ($)" name="m2Amount" value={job.m2Amount} onChange={handleChange} type="number" />
+            <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Contract total</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt$((parseFloat(job.m1Amount) || 0) + (parseFloat(job.m2Amount) || 0))}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>auto-calculated</div>
+            </div>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <PayCard label="M1" pct="80%" amount={m1Amount} isDue={m1IsDue} received={job.m1Received} onToggle={toggleM1} />
-          <PayCard label="M2" pct="20%" amount={m2Amount} isDue={m2IsDue} received={job.m2Received} onToggle={toggleM2} />
+          <PayCard label="M1" amount={m1Amount} isDue={m1IsDue} received={job.m1Received} onToggle={toggleM1} />
+          <PayCard label="M2" amount={m2Amount} isDue={m2IsDue} received={job.m2Received} onToggle={toggleM2} />
         </div>
       </div>
 

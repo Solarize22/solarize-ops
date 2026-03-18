@@ -94,10 +94,13 @@ function mapToJob(row, index) {
   const m1Due = ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(normalizedStatus) || m1Received;
   const m2Due = ["Inspection Passed","Fully Paid / Closed"].includes(normalizedStatus) || m2Received;
 
+  // M1/M2 amounts are the source of truth; contractAmount falls back for legacy CSVs
+  const m1Amount = money(get("m1_amount", "m1_amt", "due_80%", "due_80")) ||
+                   money(get("contract_amount", "contract", "amount", "price", "install_cost", "cost")) * 0.8 || 0;
+  const m2Amount = money(get("m2_amount", "m2_amt", "due_20%", "due_20")) ||
+                   money(get("contract_amount", "contract", "amount", "price", "install_cost", "cost")) * 0.2 || 0;
   const installCost    = money(get("install_cost", "cost"));
-  const due80          = money(get("due_80%", "due_80"));
-  const due20          = money(get("due_20%", "due_20"));
-  const contractAmount = money(get("contract_amount", "contract", "amount", "price")) || installCost || (due80 + due20) || 0;
+  const contractAmount = (m1Amount + m2Amount) || installCost || 0;
 
   return {
     id:              jobId,
@@ -117,6 +120,8 @@ function mapToJob(row, index) {
     roofType:        get("roof_type"),
     rep:             get("rep", "salesperson"),
     financer:        get("financer", "finance"),
+    m1Amount,
+    m2Amount,
     contractAmount,
     installCost:     installCost || contractAmount,
     partner:         get("partner", "build_partner"),
@@ -138,7 +143,7 @@ const TEMPLATE_HEADERS = [
   "job_id","customer","phone","email",
   "street","city","state","zip",
   "system_size_kw","panel_count","watt_per_panel","inverter","battery","roof_type",
-  "rep","financer","contract_amount","install_cost",
+  "rep","financer","m1_amount","m2_amount",
   "partner","crew","invoice_number","utility_company",
   "status","install_date","inspection_date",
   "m1_received","m2_received",
@@ -149,7 +154,7 @@ const TEMPLATE_SAMPLE = [
   "CT-5274","Janvier Paulette","860-555-0192","paulette@email.com",
   "84 Elmwood Ave","Waterbury","CT","06704",
   "14.4","36","400","Enphase IQ8A","No","Asphalt shingle",
-  "Tommy","GoodLeap","11628","11628",
+  "Tommy","GoodLeap","9302","2326",
   "SolarCrew NE","Tommy, Jake","INV-2965","Eversource CT",
   "Install Complete","2026-03-03","",
   "Yes","No",

@@ -46,7 +46,8 @@ export default function ReportsPage() {
   const permits = useMemo(() => jobsToPermits(jobs), [jobs]);
 
   // Computed metrics
-  const totalPipeline = jobs.reduce((s, j) => s + (j.contractAmount || j.installCost || 0), 0);
+  const jobTotal = j => (j.m1Amount || 0) + (j.m2Amount || 0) || j.contractAmount || j.installCost || 0;
+  const totalPipeline = jobs.reduce((s, j) => s + jobTotal(j), 0);
   const collected = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0);
   const outstanding = invoices.filter(i => i.status !== "Paid").reduce((s, i) => s + i.amount, 0);
   const overdueAmt = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + i.amount, 0);
@@ -65,7 +66,7 @@ export default function ReportsPage() {
 
   // Revenue by rep
   const repRevenue = {};
-  jobs.forEach(j => { repRevenue[j.rep] = (repRevenue[j.rep] || 0) + (j.contractAmount || j.installCost || 0); });
+  jobs.forEach(j => { repRevenue[j.rep] = (repRevenue[j.rep] || 0) + jobTotal(j); });
 
   // Finance breakdown
   const financeCounts = {};
