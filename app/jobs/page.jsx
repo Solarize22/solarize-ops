@@ -107,10 +107,10 @@ export default function JobsPage() {
   const [stageFilter, setStageFilter]   = useState("All");
   const [sort, setSort]                 = useState({ col: "date", dir: "desc" });
   const baseColumns = [
+    { key: "stage",    label: "Stage" },
     { key: "customer", label: "Customer" },
     { key: "id",       label: "Job #" },
     { key: "status",   label: "Status" },
-    { key: "stage",    label: "Stage" },
     { key: "location", label: "Location" },
     { key: "system",   label: "System" },
     { key: "crew",     label: "Crew" },
