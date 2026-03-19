@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, computeStage, STAGES, STAGE_COLORS } from "@/lib/utils";
 import { Search, ChevronRight, Plus, AlertTriangle, Download, X } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
 import { useUserRole } from "@/lib/useUserRole";
@@ -104,11 +104,13 @@ export default function JobsPage() {
   const [repFilter, setRepFilter]       = useState("All");
   const [period, setPeriod]             = useState("All time");
   const [activeFilter, setActiveFilter] = useState("Active");
+  const [stageFilter, setStageFilter]   = useState("All");
   const [sort, setSort]                 = useState({ col: "date", dir: "desc" });
   const baseColumns = [
     { key: "customer", label: "Customer" },
     { key: "id",       label: "Job #" },
     { key: "status",   label: "Status" },
+    { key: "stage",    label: "Stage" },
     { key: "location", label: "Location" },
     { key: "system",   label: "System" },
     { key: "crew",     label: "Crew" },
@@ -152,6 +154,7 @@ export default function JobsPage() {
       });
 
       const matchStatus = statusFilter === "All" || j.status === statusFilter;
+      const matchStage  = stageFilter === "All" || computeStage(j) === stageFilter;
       const matchState  = stateFilter === "All" || j.state === stateFilter;
       const matchCrew   = crewFilter === "All" || (j.crew || []).includes(crewFilter);
       const matchRep    = repFilter === "All" || j.rep === repFilter;
@@ -179,9 +182,9 @@ export default function JobsPage() {
         (activeFilter === "Active" && isActive) ||
         (activeFilter === "Inactive" && !isActive);
 
-      return matchSearch && matchStatus && matchState && matchCrew && matchRep && matchM1 && matchM2 && matchActive;
+      return matchSearch && matchStatus && matchStage && matchState && matchCrew && matchRep && matchM1 && matchM2 && matchActive;
     });
-  }, [jobs, search, statusFilter, stateFilter, crewFilter, repFilter, m1Filter, m2Filter, period, activeFilter]);
+  }, [jobs, search, statusFilter, stageFilter, stateFilter, crewFilter, repFilter, m1Filter, m2Filter, period, activeFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -195,6 +198,11 @@ export default function JobsPage() {
       else if (col === "system") { av = parseFloat(a.systemSize) || 0; bv = parseFloat(b.systemSize) || 0; return dir === "asc" ? av - bv : bv - av; }
       else if (col === "crew") { av = (a.crew || []).join(""); bv = (b.crew || []).join(""); }
       else if (col === "rep")  { av = a.rep || ""; bv = b.rep || ""; }
+      else if (col === "stage") {
+        const order = STAGES.reduce((acc, s, i) => { acc[s] = i; return acc; }, {});
+        av = order[computeStage(a)] ?? 99; bv = order[computeStage(b)] ?? 99;
+        return dir === "asc" ? av - bv : bv - av;
+      }
       else if (col === "date") {
         av = bestDate(a); bv = bestDate(b);
         return dir === "asc" ? av - bv : bv - av;
@@ -209,18 +217,18 @@ export default function JobsPage() {
     setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "desc" });
   }
 
-  const hasFilters = search || statusFilter !== "All" || stateFilter !== "All" ||
+  const hasFilters = search || statusFilter !== "All" || stageFilter !== "All" || stateFilter !== "All" ||
     crewFilter !== "All" || repFilter !== "All" ||
     (canSeeFinancials && (m1Filter !== "All" || m2Filter !== "All"));
 
   function clearFilters() {
-    setSearch(""); setStatusFilter("All"); setStateFilter("All");
+    setSearch(""); setStatusFilter("All"); setStageFilter("All"); setStateFilter("All");
     setCrewFilter("All"); setRepFilter("All"); setM1Filter("All"); setM2Filter("All");
   }
 
   function downloadCSV() {
     const headers = [
-      "Job #","Customer","Status","Street","City","State","Zip",
+      "Job #","Customer","Status","Stage","Street","City","State","Zip",
       "System Size (kW)","Panels","Watt/Panel","Inverter","Battery",
       "Crew","Rep","Financer","Contract Amount","Install Cost",
       "M1 Due","M1 Received","M2 Due","M2 Received",
@@ -232,7 +240,7 @@ export default function JobsPage() {
       return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g,'""')}"` : s;
     };
     const rows = sorted.map(j => [
-      j.id, j.customer, j.status, j.street, j.city, j.state, j.zip,
+      j.id, j.customer, j.status, computeStage(j), j.street, j.city, j.state, j.zip,
       j.systemSize, j.panelCount||"", j.watt||"", j.inverter, j.battery?"Yes":"No",
       (j.crew||[]).join("; "), j.rep, j.financer, j.contractAmount||"", j.installCost||"",
       j.m1Due?"Yes":"No", j.m1Received?"Yes":"No",
@@ -353,6 +361,9 @@ export default function JobsPage() {
         {/* State */}
         <FilterSelect value={stateFilter} onChange={setStateFilter} options={STATES} placeholder="All states" />
 
+        {/* Stage */}
+        <FilterSelect value={stageFilter} onChange={setStageFilter} options={["All", ...STAGES]} placeholder="All stages" />
+
         {/* Crew */}
         {crewOptions.length > 2 && (
           <FilterSelect value={crewFilter} onChange={setCrewFilter} options={crewOptions} placeholder="All crew" />
@@ -471,6 +482,15 @@ export default function JobsPage() {
                             </select>
                           </td>
                         );
+                        if (key === "stage") {
+                          const s = computeStage(job);
+                          const sgc = STAGE_COLORS[s] || { bg: "#f1f5f9", color: "#334155" };
+                          return (
+                            <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: sgc.bg, color: sgc.color }}>{s}</span>
+                            </td>
+                          );
+                        }
                         if (key === "location") return (
                           <td key={colIdx} style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
                             <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{job.state}{job.city ? ` · ${job.city}` : ""}</div>

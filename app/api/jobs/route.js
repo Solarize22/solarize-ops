@@ -4,6 +4,7 @@ import path from "path";
 import { jobs as staticJobs } from "@/lib/data";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getOrCreateUser } from "@/lib/users";
+import { computeStage } from "@/lib/utils";
 
 // ─── Neon (production) vs file (local dev) ───────────────────────────────────
 const USE_DB = !!process.env.POSTGRES_URL;
@@ -171,6 +172,7 @@ export async function GET() {
   }
 
   jobs = applyRoleFilter(jobs, role, name);
+  jobs = jobs.map(j => ({ ...j, stage: computeStage(j) }));
   return NextResponse.json(jobs);
 }
 
@@ -204,12 +206,15 @@ export async function PATCH(req) {
     await ensureTable(sql);
     const result = await dbPatch(sql, id, updates);
     if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json(result);
+    const withStage = { ...result, stage: computeStage(result) };
+    await sql`UPDATE jobs SET data = ${JSON.stringify(withStage)}::jsonb WHERE id = ${id}`;
+    return NextResponse.json(withStage);
   }
   const jobs = readFile() || [];
   const idx = jobs.findIndex(j => j.id === id);
   if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
   jobs[idx] = { ...jobs[idx], ...updates };
+  jobs[idx].stage = computeStage(jobs[idx]);
   writeFile(jobs);
   return NextResponse.json(jobs[idx]);
 }

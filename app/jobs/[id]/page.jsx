@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, computeStage, STAGES, STAGE_COLORS } from "@/lib/utils";
 import {
   ArrowLeft, Pencil, Save, X, MapPin, Phone, Mail,
   Zap, DollarSign, User, Plus, Minus, Check,
@@ -188,6 +188,10 @@ export default function JobDetailPage() {
     };
     if (tl.install1Crew.trim()) updates.crew = toArr(tl.install1Crew);
 
+    // Write dedicated status fields for computeStage
+    updates.installStatus    = tl.install1Status;
+    updates.inspectionStatus = tl.inspStatus;
+
     // Derive job status from timeline
     const cur = job.status;
     if (tl.inspStatus === "Passed" && tl.inspDate) {
@@ -241,8 +245,10 @@ export default function JobDetailPage() {
     setPayConfirm(null);
   }
 
-  const sc        = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
-  const isIssue   = job.status === "Rescheduled / Issue";
+  const sc          = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
+  const isIssue     = job.status === "Rescheduled / Issue";
+  const displayStage = computeStage(job);
+  const stageSc      = STAGE_COLORS[displayStage] || { bg: "#f1f5f9", color: "#334155" };
   // M1/M2 are the source of truth; contractAmount derived from their sum
   const m1Amount  = job.m1Amount || 0;
   const m2Amount  = job.m2Amount || 0;
@@ -338,6 +344,7 @@ export default function JobDetailPage() {
               <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>{job.customer}</h1>
               <span className="mono badge badge-slate">{job.id}</span>
               <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 500, background: sc.bg, color: sc.color }}>{job.status}</span>
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 600, background: stageSc.bg, color: stageSc.color }}>{displayStage}</span>
               {job.battery && <span className="badge badge-slate">Battery</span>}
               {job.hoa    && <span className="badge badge-slate">HOA</span>}
             </div>
@@ -411,6 +418,10 @@ export default function JobDetailPage() {
               </div>
             );
           })}
+        </div>
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em" }}>Stage</span>
+          <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 600, background: stageSc.bg, color: stageSc.color }}>{displayStage}</span>
         </div>
       </div>
 
@@ -558,6 +569,13 @@ export default function JobDetailPage() {
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Project details</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 20px" }}>
             <EditField label="Status" name="status" value={job.status} onChange={handleChange} options={STATUSES} />
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Stage</div>
+              <select name="stage" value={job.stage || displayStage} onChange={handleChange} style={{ width: "100%" }}>
+                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 3 }}>Auto-set · override manually if needed</div>
+            </div>
             <EditField label="Rep" name="rep" value={job.rep} onChange={handleChange} options={REPS} />
             <EditField label="Financer" name="financer" value={job.financer} onChange={handleChange} options={FINANCERS} />
             <EditField label="Contractor" name="contractor" value={job.contractor} onChange={handleChange} options={CONTRACTORS} />
