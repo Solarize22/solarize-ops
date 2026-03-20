@@ -189,6 +189,12 @@ function mapToJobUpdate(row) {
   if (has("next_action","remaining_work"))                result.nextAction  = val("next_action","remaining_work");
   if (has("notes","additional_notes"))                    result.notes       = [val("notes"), val("additional_notes")].filter(Boolean).join(" ").trim();
   if (has("permit_status"))                               result.permitStatus = val("permit_status");
+  if (has("hoa"))                                         result.hoa         = bool(val("hoa"));
+  if (has("battery"))                                     result.battery     = bool(val("battery"));
+  if (has("deal"))                                        result.deal        = val("deal");
+  if (has("module"))                                      result.module      = val("module");
+  if (has("contractor"))                                  result.contractor  = val("contractor");
+  if (has("interconnection_status","interconnection"))    result.interconnectionStatus = val("interconnection_status","interconnection");
 
   // Status — only if explicitly provided
   const rawStatus = val("status");
@@ -235,11 +241,7 @@ function mapToJobUpdate(row) {
   const watt = parseInt(val("watt","watt_per_panel","watt_panel","watts") || "0") || 0;
   if (watt) result.watt = watt;
 
-  // New fields — only if present and non-empty (preserves existing data)
-  const v_deal = val("deal");
-  if (v_deal && v_deal !== "—") result.deal = v_deal;
-  const v_module = val("module");
-  if (v_module && v_module !== "—") result.module = v_module;
+  // Numeric/other new fields
   if (has("qty")) {
     const q = parseInt(val("qty") || "0") || 0;
     if (q > 0) result.qty = q;
@@ -274,26 +276,26 @@ function mapToJobUpdate(row) {
 
 const TEMPLATE_HEADERS = [
   "job_id","customer","phone","email",
-  "street","city","state","zip",
+  "street","city","state","zip","hoa",
   "system_size_kw","panel_count","watt_per_panel","inverter","battery","roof_type",
-  "rep","financer","m1_invoice_number","m2_invoice_number",
-  "m1_amount","m2_amount","adders",
-  "partner","crew","utility_company",
-  "status","install_date","inspection_date",
+  "rep","financer","deal","module","qty",
+  "m1_invoice_number","m2_invoice_number","m1_amount","m2_amount","adders",
   "m1_status","m2_status","empower_f1","empower_f2",
+  "partner","contractor","crew","utility_company","interconnection_status",
+  "permit_status","status","install_date","inspection_date",
   "next_action","notes",
   "monitoring","monitoring_alerts","lifetime_production","age_(d)","contract_signed",
 ];
 
 const TEMPLATE_SAMPLE = [
   "CT-5274","Janvier Paulette","860-555-0192","paulette@email.com",
-  "84 Elmwood Ave","Waterbury","CT","06704",
+  "84 Elmwood Ave","Waterbury","CT","06704","No",
   "14.4","36","400","Enphase IQ8A","No","Asphalt shingle",
-  "Tommy","GoodLeap","INV-2965","INV-2966",
-  "9302","2326","0",
-  "SolarCrew NE","Tommy, Jake","Eversource CT",
-  "Install Complete","2026-03-03","",
+  "Tommy","GoodLeap","Loan","Enphase IQ8A 400W","36",
+  "INV-2965","INV-2966","9302","2326","0",
   "Yes","No","No","No",
+  "SolarCrew NE","Solarize","Tommy, Jake","Eversource CT","Approved",
+  "Approved","Install Complete","2026-03-03","",
   "Schedule inspection","Sample job — delete this row",
   "Active","0","","0","2026-01-15",
 ];
