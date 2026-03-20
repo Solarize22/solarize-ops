@@ -109,7 +109,8 @@ function mergeJobs(existing, incoming) {
 
 // Financial fields that non-owners should NOT see
 const FINANCIAL_FIELDS = [
-  "m1Amount", "m2Amount", "contractAmount", "installCost", "invoiceNumber",
+  "m1Amount", "m2Amount", "adders", "m1InvoiceNumber", "m2InvoiceNumber",
+  "m1Status", "m2Status", "empowerF1", "empowerF2",
 ];
 
 function stripFinancial(job) {

@@ -89,18 +89,15 @@ function mapToJob(row, index) {
   const bool    = v => ["yes", "true", "1", "x"].includes((v || "").toLowerCase().trim());
   const money   = v => parseFloat((v || "").replace(/[$,]/g, "")) || 0;
 
-  const m1Received = bool(get("m1_received", "m1_paid", "m1"));
-  const m2Received = bool(get("m2_received", "m2_paid", "m2"));
-  const m1Due = ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(normalizedStatus) || m1Received;
-  const m2Due = ["Inspection Passed","Fully Paid / Closed"].includes(normalizedStatus) || m2Received;
+  const m1Status = bool(get("m1_status", "m1_received", "m1_paid", "m1"));
+  const m2Status = bool(get("m2_status", "m2_received", "m2_paid", "m2"));
 
-  // M1/M2 amounts are the source of truth; contractAmount falls back for legacy CSVs
+  // M1/M2 amounts are the source of truth; fall back to contract_amount split for legacy CSVs
   const m1Amount = money(get("m1_amount", "m1_amt", "due_80%", "due_80")) ||
                    money(get("contract_amount", "contract", "amount", "price", "install_cost", "cost")) * 0.8 || 0;
   const m2Amount = money(get("m2_amount", "m2_amt", "due_20%", "due_20")) ||
                    money(get("contract_amount", "contract", "amount", "price", "install_cost", "cost")) * 0.2 || 0;
-  const installCost    = money(get("install_cost", "cost"));
-  const contractAmount = (m1Amount + m2Amount) || installCost || 0;
+  const adders = money(get("adders", "adder"));
 
   return {
     id:              jobId,
@@ -120,17 +117,20 @@ function mapToJob(row, index) {
     roofType:        get("roof_type"),
     rep:             get("rep", "salesperson"),
     financer:        get("financer", "finance"),
+    m1InvoiceNumber: get("m1_invoice_number", "m1_invoice"),
+    m2InvoiceNumber: get("m2_invoice_number", "m2_invoice"),
     m1Amount,
     m2Amount,
-    contractAmount,
-    installCost:     installCost || contractAmount,
+    adders,
+    m1Status,
+    m2Status,
+    empowerF1:       bool(get("empower_f1", "empower_f_1")),
+    empowerF2:       bool(get("empower_f2", "empower_f_2")),
     partner:         get("partner", "build_partner"),
     crew,
-    invoiceNumber:   get("invoice_number", "invoice_#", "invoice"),
     utilityCompany:  get("utility_company", "utility"),
     permitStatus:    get("permit_status") || "Not Submitted",
     status:          normalizedStatus,
-    m1Due, m1Received, m2Due, m2Received,
     installDate:     get("install_date", "due_date"),
     inspectionDate:  get("inspection_date", "inspection"),
     nextAction:      get("next_action", "remaining_work"),
@@ -180,7 +180,8 @@ function mapToJobUpdate(row) {
   if (has("rep","salesperson"))                           result.rep         = val("rep","salesperson");
   if (has("financer","finance"))                          result.financer    = val("financer","finance");
   if (has("partner","build_partner"))                     result.partner     = val("partner","build_partner");
-  if (has("invoice_number","invoice_#","invoice"))        result.invoiceNumber = val("invoice_number","invoice_#","invoice");
+  if (has("m1_invoice_number","m1_invoice"))              result.m1InvoiceNumber = val("m1_invoice_number","m1_invoice");
+  if (has("m2_invoice_number","m2_invoice"))              result.m2InvoiceNumber = val("m2_invoice_number","m2_invoice");
   if (has("utility_company","utility"))                   result.utilityCompany = val("utility_company","utility");
   if (has("inverter"))                                    result.inverter    = val("inverter");
   if (has("roof_type"))                                   result.roofType    = val("roof_type");
@@ -217,13 +218,16 @@ function mapToJobUpdate(row) {
     const v = money(val("m2_amount","m2_amt"));
     if (v > 0) result.m2Amount = v;
   }
-  if (result.m1Amount || result.m2Amount) {
-    result.contractAmount = (result.m1Amount || 0) + (result.m2Amount || 0);
+  if (has("adders","adder")) {
+    const v = money(val("adders","adder"));
+    result.adders = v;
   }
 
-  // Payment flags — only if explicitly present
-  if (has("m1_received","m1_paid")) result.m1Received = bool(val("m1_received","m1_paid"));
-  if (has("m2_received","m2_paid")) result.m2Received = bool(val("m2_received","m2_paid"));
+  // Status flags — only if explicitly present
+  if (has("m1_status","m1_received","m1_paid")) result.m1Status = bool(val("m1_status","m1_received","m1_paid"));
+  if (has("m2_status","m2_received","m2_paid")) result.m2Status = bool(val("m2_status","m2_received","m2_paid"));
+  if (has("empower_f1","empower_f_1")) result.empowerF1 = bool(val("empower_f1","empower_f_1"));
+  if (has("empower_f2","empower_f_2")) result.empowerF2 = bool(val("empower_f2","empower_f_2"));
 
   // Numeric fields — only if present and non-zero
   const panelCount = parseInt(val("panel_count","panels") || "0") || 0;
@@ -272,10 +276,11 @@ const TEMPLATE_HEADERS = [
   "job_id","customer","phone","email",
   "street","city","state","zip",
   "system_size_kw","panel_count","watt_per_panel","inverter","battery","roof_type",
-  "rep","financer","m1_amount","m2_amount",
-  "partner","crew","invoice_number","utility_company",
+  "rep","financer","m1_invoice_number","m2_invoice_number",
+  "m1_amount","m2_amount","adders",
+  "partner","crew","utility_company",
   "status","install_date","inspection_date",
-  "m1_received","m2_received",
+  "m1_status","m2_status","empower_f1","empower_f2",
   "next_action","notes",
 ];
 
@@ -283,10 +288,11 @@ const TEMPLATE_SAMPLE = [
   "CT-5274","Janvier Paulette","860-555-0192","paulette@email.com",
   "84 Elmwood Ave","Waterbury","CT","06704",
   "14.4","36","400","Enphase IQ8A","No","Asphalt shingle",
-  "Tommy","GoodLeap","9302","2326",
-  "SolarCrew NE","Tommy, Jake","INV-2965","Eversource CT",
+  "Tommy","GoodLeap","INV-2965","INV-2966",
+  "9302","2326","0",
+  "SolarCrew NE","Tommy, Jake","Eversource CT",
   "Install Complete","2026-03-03","",
-  "Yes","No",
+  "Yes","No","No","No",
   "Schedule inspection","Sample job — delete this row",
 ];
 

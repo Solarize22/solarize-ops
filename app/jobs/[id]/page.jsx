@@ -104,14 +104,15 @@ function NoteEditor({ job, applyUpdate, editing, handleChange }) {
 
 export default function JobDetailPage() {
   const { id }       = useParams();
-  const [job, setJob]       = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [saved, setSaved]     = useState(false);
-  const [payConfirm, setPayConfirm] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [tl, setTl]           = useState(null);
-  const [tlSaved, setTlSaved] = useState(false);
-  const savedSnapshot         = useRef(null);
+  const [job, setJob]           = useState(null);
+  const [editing, setEditing]   = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [tl, setTl]             = useState(null);
+  const [tlSaved, setTlSaved]   = useState(false);
+  const [financeData, setFinanceData] = useState(null);
+  const [financeSaved, setFinanceSaved] = useState(false);
+  const savedSnapshot           = useRef(null);
 
   useEffect(() => {
     fetch("/api/jobs")
@@ -121,6 +122,17 @@ export default function JobDetailPage() {
         if (found) {
           savedSnapshot.current = { ...found };
           setJob({ ...found });
+          setFinanceData({
+            m1InvoiceNumber: found.m1InvoiceNumber || "",
+            m2InvoiceNumber: found.m2InvoiceNumber || "",
+            m1Amount:        found.m1Amount != null ? found.m1Amount : "",
+            m2Amount:        found.m2Amount != null ? found.m2Amount : "",
+            adders:          found.adders != null ? found.adders : "",
+            m1Status:        !!found.m1Status,
+            m2Status:        !!found.m2Status,
+            empowerF1:       !!found.empowerF1,
+            empowerF2:       !!found.empowerF2,
+          });
           const crewStr = Array.isArray(found.crew) ? found.crew.join(", ") : (found.crew || "");
           setTl({
             install1Date:   found.installDate   || "",
@@ -197,13 +209,13 @@ export default function JobDetailPage() {
     // Derive job status from timeline
     const cur = job.status;
     if (tl.inspStatus === "Passed" && tl.inspDate) {
-      updates.status = "Inspection Passed"; updates.m2Due = true;
+      updates.status = "Inspection Passed";
     } else if (tl.inspStatus === "Failed") {
       updates.status = "Rescheduled / Issue";
     } else if (tl.inspDate && tl.inspStatus === "Scheduled" && !["Inspection Passed","Fully Paid / Closed"].includes(cur)) {
       updates.status = "Inspection Scheduled";
     } else if (tl.install1Status === "Complete" && tl.install1Date && !["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(cur)) {
-      updates.status = "Install Complete"; updates.m1Due = true;
+      updates.status = "Install Complete";
     }
 
     applyUpdate(updates);
@@ -211,54 +223,31 @@ export default function JobDetailPage() {
     setTimeout(() => setTlSaved(false), 3000);
   }
 
-  function toggleM1() {
-    if (!job.m1Received) {
-      setPayConfirm({ type: "m1" });
-    } else {
-      // Unmarking M1: revert status if job was closed
-      const updates = { m1Received: false };
-      if (job.status === "Fully Paid / Closed") updates.status = "Inspection Passed";
-      applyUpdate(updates);
-    }
-  }
-  function toggleM2() {
-    if (!job.m2Received) {
-      setPayConfirm({ type: "m2" });
-    } else {
-      // Unmarking M2: revert status if job was closed
-      const updates = { m2Received: false };
-      if (job.status === "Fully Paid / Closed") updates.status = "Inspection Passed";
-      applyUpdate(updates);
-    }
-  }
-
-  function confirmPayment() {
-    const { type } = payConfirm;
-    const isM1 = type === "m1";
-    const updates = isM1
-      ? { m1Received: true, m1Due: true }
-      : { m2Received: true, m2Due: true };
-    const willClose = isM1 ? job.m2Received : job.m1Received;
-    if (willClose) {
-      updates.status = "Fully Paid / Closed";
-      updates.active = false;
-    }
+  function saveFinance() {
+    const updates = {
+      m1InvoiceNumber: financeData.m1InvoiceNumber,
+      m2InvoiceNumber: financeData.m2InvoiceNumber,
+      m1Amount:        financeData.m1Amount !== "" ? parseFloat(financeData.m1Amount) || 0 : 0,
+      m2Amount:        financeData.m2Amount !== "" ? parseFloat(financeData.m2Amount) || 0 : 0,
+      adders:          financeData.adders   !== "" ? parseFloat(financeData.adders)   || 0 : 0,
+      m1Status:        financeData.m1Status,
+      m2Status:        financeData.m2Status,
+      empowerF1:       financeData.empowerF1,
+      empowerF2:       financeData.empowerF2,
+    };
     applyUpdate(updates);
-    setPayConfirm(null);
+    setFinanceSaved(true);
+    setTimeout(() => setFinanceSaved(false), 3000);
   }
 
   const sc          = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
   const isIssue     = job.status === "Rescheduled / Issue";
   const displayStage = computeStage(job);
   const stageSc      = STAGE_COLORS[displayStage] || { bg: "#f1f5f9", color: "#334155" };
-  // M1/M2 are the source of truth; contractAmount derived from their sum
-  const m1Amount  = job.m1Amount || 0;
-  const m2Amount  = job.m2Amount || 0;
-  const total     = (m1Amount + m2Amount) || job.contractAmount || job.installCost || 0;
-  const m1IsDue   = job.m1Due || ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
-  const m2IsDue   = job.m2Due || job.m1Received || ["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status) || !!job.inspectionDate;
-  const willClose = payConfirm && ((payConfirm.type === "m2" && job.m1Received) || (payConfirm.type === "m1" && job.m2Received));
-  const fmt$      = v => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(v || 0);
+  const fmt$        = v => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(v || 0);
+  const contractTotal = financeData
+    ? (parseFloat(financeData.m1Amount) || 0) + (parseFloat(financeData.m2Amount) || 0) + (parseFloat(financeData.adders) || 0)
+    : 0;
 
   function TlRow({ label, green, dateKey, crewKey, statusKey, statusOpts, onAdd, onRemove }) {
     return (
@@ -283,56 +272,8 @@ export default function JobDetailPage() {
     );
   }
 
-  function PayCard({ label, amount, isDue, received, onToggle }) {
-    return (
-      <div style={{
-        borderRadius: "var(--radius-md)", padding: "14px 16px",
-        background: isDue ? (received ? "#d8f3dc" : "#fef9c3") : "var(--surface-2)",
-        border: `1px solid ${isDue ? (received ? "#bbf7d0" : "#fde68a") : "var(--border)"}`,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginTop: 2 }}>{fmt$(amount)}</div>
-          </div>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: received ? "#16a34a" : isDue ? "#f59e0b" : "#e2e8f0", color: received || isDue ? "white" : "var(--text-secondary)" }}>
-            {received ? "Paid" : isDue ? "Due" : "Pending"}
-          </span>
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: isDue ? 10 : 0 }}>
-          {isDue ? (received ? "Payment received" : (label === "M1" ? "Triggered by Install Complete" : "Triggered by Inspection Passed")) : (label === "M1" ? "Due when install is marked complete" : "Due when inspection passes")}
-        </div>
-        {isDue && (
-          <button onClick={onToggle} style={{ width: "100%", padding: "6px", borderRadius: "var(--radius-sm)", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)", background: received ? "#15803d" : "var(--text-primary)", color: "white" }}>
-            {received ? "✓ Received" : "Mark received"}
-          </button>
-        )}
-      </div>
-    );
-  }
-
   return (
     <AppShell>
-      {/* Payment confirmation modal */}
-      {payConfirm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div className="card" style={{ width: 380, padding: 28, borderRadius: "var(--radius-lg)" }}>
-            <h3 style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>Confirm {payConfirm.type === "m1" ? "M1 (80%)" : "M2 (20%)"} received?</h3>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: willClose ? 10 : 20 }}>
-              Mark the {payConfirm.type === "m1" ? "80%" : "20%"} payment of {payConfirm.type === "m1" ? fmt$(m1Amount) : fmt$(m2Amount)} as collected for <strong>{job.customer}</strong>.
-            </p>
-            {willClose && (
-              <div style={{ background: "#fef3c7", border: "1px solid #fbbf24", borderRadius: "var(--radius-md)", padding: "10px 14px", marginBottom: 20, fontSize: 13, color: "#92400e" }}>
-                ⚠️ Both M1 and M2 will be received — this job will automatically be marked <strong>Fully Paid / Closed</strong> and moved to <strong>Inactive</strong>.
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setPayConfirm(null)} style={{ padding: "8px 18px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-strong)", background: "var(--surface)", fontSize: 13, cursor: "pointer", fontFamily: "var(--font-body)" }}>Cancel</button>
-              <button onClick={confirmPayment} style={{ padding: "8px 18px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>Yes, confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 16 }}>
@@ -462,47 +403,79 @@ export default function JobDetailPage() {
         )}
       </div>
 
-      {/* ── Section 3: Finance ──────────────────────────────────────────── */}
-      <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-          <DollarSign size={14} style={{ color: "var(--text-secondary)" }} />
-          <span style={{ fontWeight: 600, fontSize: 13 }}>Finance</span>
-        </div>
+      {/* ── Section 3: Finances ─────────────────────────────────────────── */}
+      {financeData && (
+        <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <DollarSign size={14} style={{ color: "var(--text-secondary)" }} />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Finances</span>
+          </div>
 
-        {/* Metric cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 12 }}>
-          <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Total revenue</div>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{formatCurrency(total)}</div>
-          </div>
-          <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Financer</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{job.financer || "—"}</div>
-          </div>
-          <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Invoice #</div>
-            <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{job.invoiceNumber || "—"}</div>
-          </div>
-        </div>
-
-        {/* M1 / M2 */}
-        {/* M1 / M2 amounts — editable when in edit mode */}
-        {editing && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
-            <EditField label="M1 Amount ($)" name="m1Amount" value={job.m1Amount} onChange={handleChange} type="number" />
-            <EditField label="M2 Amount ($)" name="m2Amount" value={job.m2Amount} onChange={handleChange} type="number" />
-            <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Contract total</div>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt$((parseFloat(job.m1Amount) || 0) + (parseFloat(job.m2Amount) || 0))}</div>
-              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>auto-calculated</div>
+          {/* Invoice numbers */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px", marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M1 Invoice #</div>
+              <input type="text" value={financeData.m1InvoiceNumber} onChange={e => setFinanceData(p => ({ ...p, m1InvoiceNumber: e.target.value }))} style={{ width: "100%" }} placeholder="e.g. INV-2965" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M2 Invoice #</div>
+              <input type="text" value={financeData.m2InvoiceNumber} onChange={e => setFinanceData(p => ({ ...p, m2InvoiceNumber: e.target.value }))} style={{ width: "100%" }} placeholder="e.g. INV-2966" />
             </div>
           </div>
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <PayCard label="M1" amount={m1Amount} isDue={m1IsDue} received={job.m1Received} onToggle={toggleM1} />
-          <PayCard label="M2" amount={m2Amount} isDue={m2IsDue} received={job.m2Received} onToggle={toggleM2} />
+
+          {/* Amounts + contract total */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px 16px", marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M1 Amount</div>
+              <input type="number" value={financeData.m1Amount} onChange={e => setFinanceData(p => ({ ...p, m1Amount: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M2 Amount</div>
+              <input type="number" value={financeData.m2Amount} onChange={e => setFinanceData(p => ({ ...p, m2Amount: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Adders</div>
+              <input type="number" value={financeData.adders} onChange={e => setFinanceData(p => ({ ...p, adders: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
+            </div>
+            <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Contract Total</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt$(contractTotal)}</div>
+              <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 2 }}>auto-calculated</div>
+            </div>
+          </div>
+
+          {/* Status checkboxes */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px 16px", marginBottom: 16 }}>
+            {[
+              { key: "m1Status",  label: "M1 Status" },
+              { key: "m2Status",  label: "M2 Status" },
+              { key: "empowerF1", label: "Empower F1" },
+              { key: "empowerF2", label: "Empower F2" },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!financeData[key]}
+                    onChange={e => setFinanceData(p => ({ ...p, [key]: e.target.checked }))}
+                    style={{ width: 15, height: 15 }}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{financeData[key] ? "Yes" : "No"}</span>
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {/* Save button */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={saveFinance} style={{ padding: "7px 18px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>
+              Save finances
+            </button>
+            {financeSaved && <span style={{ fontSize: 12, color: "var(--green)", display: "flex", alignItems: "center", gap: 4 }}><Check size={12} /> Saved</span>}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Section 4: Homeowner ─────────────────────────────────────────── */}
       <div style={{ marginBottom: 12 }}>
@@ -613,8 +586,7 @@ export default function JobDetailPage() {
             <EditField label="Utility company" name="utilityCompany" value={job.utilityCompany} onChange={handleChange} />
             <EditField label="Permit status" name="permitStatus" value={job.permitStatus} onChange={handleChange} options={PERMIT_STATUSES} />
             <EditField label="Interconnection" name="interconnectionStatus" value={job.interconnectionStatus} onChange={handleChange} options={INTERCONNECTION_STATUSES} />
-            <EditField label="Invoice #" name="invoiceNumber" value={job.invoiceNumber} onChange={handleChange} />
-            <div style={{ gridColumn: "span 3" }}><EditField label="Next action" name="nextAction" value={job.nextAction} onChange={handleChange} /></div>
+            <div style={{ gridColumn: "span 4" }}><EditField label="Next action" name="nextAction" value={job.nextAction} onChange={handleChange} /></div>
           </div>
         </div>
       )}
