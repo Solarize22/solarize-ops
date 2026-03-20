@@ -282,6 +282,7 @@ const TEMPLATE_HEADERS = [
   "status","install_date","inspection_date",
   "m1_status","m2_status","empower_f1","empower_f2",
   "next_action","notes",
+  "monitoring","monitoring_alerts","lifetime_production","age_(d)","contract_signed",
 ];
 
 const TEMPLATE_SAMPLE = [
@@ -294,6 +295,7 @@ const TEMPLATE_SAMPLE = [
   "Install Complete","2026-03-03","",
   "Yes","No","No","No",
   "Schedule inspection","Sample job — delete this row",
+  "Active","0","","0","2026-01-15",
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
