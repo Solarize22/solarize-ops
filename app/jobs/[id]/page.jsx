@@ -120,8 +120,10 @@ export default function JobDetailPage() {
       .then(all => {
         const found = all.find(j => j.id === id);
         if (found) {
-          savedSnapshot.current = { ...found };
-          setJob({ ...found });
+          // Normalize field name differences between list (panelCount) and detail (qty)
+          const normalized = { ...found, qty: found.qty || found.panelCount || "" };
+          savedSnapshot.current = { ...normalized };
+          setJob({ ...normalized });
           // Normalize adders: old DB may have array [{description, cost}], new schema is a number
           const rawAdders = found.adders;
           const addersNum = Array.isArray(rawAdders)
