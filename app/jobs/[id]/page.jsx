@@ -122,14 +122,19 @@ export default function JobDetailPage() {
         if (found) {
           savedSnapshot.current = { ...found };
           setJob({ ...found });
+          // Normalize adders: old DB may have array [{description, cost}], new schema is a number
+          const rawAdders = found.adders;
+          const addersNum = Array.isArray(rawAdders)
+            ? rawAdders.reduce((sum, a) => sum + (Number(a.cost) || 0), 0)
+            : (rawAdders != null ? rawAdders : "");
           setFinanceData({
-            m1InvoiceNumber: found.m1InvoiceNumber || "",
+            m1InvoiceNumber: found.m1InvoiceNumber || found.invoiceNumber || "",
             m2InvoiceNumber: found.m2InvoiceNumber || "",
             m1Amount:        found.m1Amount != null ? found.m1Amount : "",
             m2Amount:        found.m2Amount != null ? found.m2Amount : "",
-            adders:          found.adders != null ? found.adders : "",
-            m1Status:        !!found.m1Status,
-            m2Status:        !!found.m2Status,
+            adders:          addersNum,
+            m1Status:        !!(found.m1Status ?? found.m1Received),
+            m2Status:        !!(found.m2Status ?? found.m2Received),
             empowerF1:       !!found.empowerF1,
             empowerF2:       !!found.empowerF2,
           });
