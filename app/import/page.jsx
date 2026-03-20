@@ -38,7 +38,7 @@ function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map(h =>
-    h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/\s+/g, "_")
+    h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/[\s\-/()]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "")
   );
   return lines.slice(1).map(line => {
     const values = [];
@@ -114,7 +114,7 @@ function mapToJob(row, index) {
     hoa:             bool(get("hoa")),
     systemSize:      get("system_size_kw", "system_size", "kw"),
     panelCount:      parseInt(get("panel_count", "panels") || "0") || 0,
-    watt:            parseInt(get("watt", "watt_per_panel", "watts") || "0") || 0,
+    watt:            parseInt(get("watt", "watt_per_panel", "watt_panel", "watts") || "0") || 0,
     inverter:        get("inverter"),
     battery:         bool(get("battery")),
     roofType:        get("roof_type"),
@@ -136,6 +136,19 @@ function mapToJob(row, index) {
     nextAction:      get("next_action", "remaining_work"),
     notes:           [get("notes"), get("additional_notes")].filter(Boolean).join(" ").trim(),
     createdAt:       new Date().toISOString().split("T")[0],
+    // New fields from CSV
+    deal:            get("deal"),
+    module:          get("module"),
+    qty:             parseInt(get("qty") || "0") || 0,
+    ageD:            parseInt(get("age_(d)", "age_d", "age") || "0") || 0,
+    stageD:          parseFloat(get("stage_(d)", "stage_d", "lifetime_production") || "0") || 0,
+    buildPartner:    get("build_partner", "partner"),
+    monitoring:      get("monitoring"),
+    monitoringAlerts: parseInt(get("monitoring_alerts", "alerts") || "0") || 0,
+    lifetimeProduction: get("lifetime_production"),
+    contractSigned:  get("contract_signed", "contract_date"),
+    fileCreated:     get("file_created"),
+    syncDate:        get("sync_date"),
   };
 }
 
@@ -171,7 +184,7 @@ function mapToJobUpdate(row) {
   if (has("utility_company","utility"))                   result.utilityCompany = val("utility_company","utility");
   if (has("inverter"))                                    result.inverter    = val("inverter");
   if (has("roof_type"))                                   result.roofType    = val("roof_type");
-  if (has("system_size_kw","system_size","kw"))           result.systemSize  = val("system_size_kw","system_size","kw");
+  if (has("system_size_kw","system_size","kw")) result.systemSize = val("system_size_kw","system_size","kw");
   if (has("next_action","remaining_work"))                result.nextAction  = val("next_action","remaining_work");
   if (has("notes","additional_notes"))                    result.notes       = [val("notes"), val("additional_notes")].filter(Boolean).join(" ").trim();
   if (has("permit_status"))                               result.permitStatus = val("permit_status");
@@ -215,8 +228,42 @@ function mapToJobUpdate(row) {
   // Numeric fields — only if present and non-zero
   const panelCount = parseInt(val("panel_count","panels") || "0") || 0;
   if (panelCount) result.panelCount = panelCount;
-  const watt = parseInt(val("watt","watt_per_panel","watts") || "0") || 0;
+  const watt = parseInt(val("watt","watt_per_panel","watt_panel","watts") || "0") || 0;
   if (watt) result.watt = watt;
+
+  // New fields — only if present and non-empty (preserves existing data)
+  const v_deal = val("deal");
+  if (v_deal && v_deal !== "—") result.deal = v_deal;
+  const v_module = val("module");
+  if (v_module && v_module !== "—") result.module = v_module;
+  if (has("qty")) {
+    const q = parseInt(val("qty") || "0") || 0;
+    if (q > 0) result.qty = q;
+  }
+  if (has("age_(d)","age_d","age")) {
+    const age = parseInt(val("age_(d)","age_d","age") || "0") || 0;
+    if (age > 0) result.ageD = age;
+  }
+  if (has("stage_(d)","stage_d","lifetime_production")) {
+    const stage = parseFloat(val("stage_(d)","stage_d","lifetime_production") || "0") || 0;
+    if (stage > 0) result.stageD = stage;
+  }
+  const v_buildPartner = val("build_partner","partner");
+  if (v_buildPartner && v_buildPartner !== "—") result.buildPartner = v_buildPartner;
+  const v_monitoring = val("monitoring");
+  if (v_monitoring && v_monitoring !== "—") result.monitoring = v_monitoring;
+  if (has("monitoring_alerts","alerts")) {
+    const alerts = parseInt(val("monitoring_alerts","alerts") || "0") || 0;
+    if (alerts > 0) result.monitoringAlerts = alerts;
+  }
+  const v_production = val("lifetime_production");
+  if (v_production && v_production !== "—") result.lifetimeProduction = v_production;
+  const v_contractSigned = val("contract_signed","contract_date");
+  if (v_contractSigned && v_contractSigned !== "—") result.contractSigned = v_contractSigned;
+  const v_fileCreated = val("file_created");
+  if (v_fileCreated && v_fileCreated !== "—") result.fileCreated = v_fileCreated;
+  const v_syncDate = val("sync_date");
+  if (v_syncDate && v_syncDate !== "—") result.syncDate = v_syncDate;
 
   return result;
 }

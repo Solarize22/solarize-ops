@@ -16,8 +16,8 @@ function readFile() {
   try {
     if (!fs.existsSync(DATA_FILE)) return null;
     const raw = fs.readFileSync(DATA_FILE, "utf8").trim();
-    if (!raw || raw === "[]") return null;
-    return JSON.parse(raw);
+    if (!raw) return null;
+    return JSON.parse(raw); // returns [] if file is empty array
   } catch { return null; }
 }
 

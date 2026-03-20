@@ -12,8 +12,10 @@ import {
   Wrench,
   Upload,
   Shield,
+  LogOut,
 } from "lucide-react";
 import { UserRoleProvider, useUserRole } from "@/lib/useUserRole";
+import { useClerk } from "@clerk/nextjs";
 
 const ALL_NAV = [
   { href: "/",           label: "Dashboard",      icon: Home,          roles: null },
@@ -47,6 +49,7 @@ function RoleBadge({ role }) {
 function SidebarContent({ children }) {
   const pathname = usePathname();
   const { user, loading, role, isOwner } = useUserRole();
+  const { signOut } = useClerk();
 
   const navItems = ALL_NAV.filter(item => {
     if (!item.roles) return true;
@@ -131,10 +134,35 @@ function SidebarContent({ children }) {
               <RoleBadge role={role} />
             </div>
             {user.email && (
-              <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 8 }}>
                 {user.email}
               </div>
             )}
+            <button
+              onClick={() => signOut({ redirectUrl: "/sign-in" })}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--surface)",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 5,
+                fontFamily: "var(--font-body)",
+                transition: "all 0.12s ease",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--surface-2)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "var(--surface)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+            >
+              <LogOut size={12} />
+              Logout
+            </button>
           </div>
         )}
 

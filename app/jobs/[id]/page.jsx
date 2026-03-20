@@ -21,6 +21,8 @@ const ROOF_TYPES     = ["Asphalt shingle","Metal","Tile","Flat/TPO","Cedar shake
 const INVERTERS      = ["Enphase IQ8A","Enphase IQ8M","Enphase IQ8H","SolarEdge HD Wave","SolarEdge Energy Hub"];
 const INSTALL_STATUSES    = ["Scheduled","Complete","Cancelled"];
 const INSPECTION_STATUSES = ["Scheduled","Passed","Failed"];
+const DEALS          = ["Loan","Cash","TPO","Dividend"];
+const MONITORING_STATUSES = ["Active","Pending_communication"];
 
 const STATUS_COLORS = {
   "Scheduled":             { bg: "#dbeafe", color: "#1e3a8a" },
@@ -502,8 +504,8 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      {/* ── Section 4: Homeowner + System ───────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+      {/* ── Section 4: Homeowner ─────────────────────────────────────────── */}
+      <div style={{ marginBottom: 12 }}>
         {/* Homeowner */}
         <div className="card" style={{ padding: "16px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
@@ -522,45 +524,73 @@ export default function JobDetailPage() {
               <EditField label="HOA" name="hoa" value={job.hoa} onChange={handleChange} type="checkbox" />
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 1fr", gap: 10 }}>
+              <Field label="Address" value={[job.street, job.city, job.state, job.zip].filter(Boolean).join(", ")} />
               <Field label="Phone" value={job.phone ? <a href={`tel:${job.phone}`} style={{ color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}><Phone size={11} />{job.phone}</a> : null} />
               <Field label="Email" value={job.email ? <a href={`mailto:${job.email}`} style={{ color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}><Mail size={11} />{job.email}</a> : null} />
-              <Field label="Address" value={[job.street, job.city, job.state, job.zip].filter(Boolean).join(", ")} />
               <Field label="HOA" value={job.hoa ? "Yes" : "No"} />
             </div>
           )}
         </div>
+      </div>
 
-        {/* System */}
+      {/* ── Section 5: System ────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 12 }}>
         <div className="card" style={{ padding: "16px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
             <Zap size={14} style={{ color: "var(--text-secondary)" }} />
             <span style={{ fontWeight: 600, fontSize: 13 }}>System</span>
           </div>
           {editing ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px" }}>
-              <EditField label="System size (kW)" name="systemSize" value={job.systemSize} onChange={handleChange} />
-              <EditField label="Panel count" name="panelCount" value={job.panelCount} onChange={handleChange} type="number" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 16px" }}>
+              <EditField label="Module" name="module" value={job.module} onChange={handleChange} />
+              <EditField label="QTY" name="qty" value={job.qty} onChange={handleChange} type="number" />
               <EditField label="Watt / panel" name="watt" value={job.watt} onChange={handleChange} type="number" />
-              <EditField label="Arrays" name="arrayCount" value={job.arrayCount} onChange={handleChange} type="number" />
-              <EditField label="Pitch" name="pitch" value={job.pitch} onChange={handleChange} />
               <EditField label="Inverter" name="inverter" value={job.inverter} onChange={handleChange} options={INVERTERS} />
-              <EditField label="Roof type" name="roofType" value={job.roofType} onChange={handleChange} options={ROOF_TYPES} />
+              <EditField label="System size (kW)" name="systemSize" value={job.systemSize} onChange={handleChange} />
               <EditField label="Battery" name="battery" value={job.battery} onChange={handleChange} type="checkbox" />
+              <EditField label="Roof type" name="roofType" value={job.roofType} onChange={handleChange} options={ROOF_TYPES} />
+              <EditField label="Arrays" name="arrayCount" value={job.arrayCount} onChange={handleChange} type="number" />
+              <EditField label="Deal" name="deal" value={job.deal} onChange={handleChange} options={DEALS} />
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <Field label="System size" value={job.systemSize ? `${job.systemSize} kW` : null} />
-              <Field label="Panels" value={job.panelCount || null} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <Field label="Module" value={job.module || null} />
+              <Field label="QTY" value={job.qty || null} />
               <Field label="Watt / panel" value={job.watt ? `${job.watt}W` : null} />
-              <Field label="Arrays" value={job.arrayCount || null} />
-              <Field label="Pitch" value={job.pitch || null} />
               <Field label="Inverter" value={job.inverter || null} />
-              <Field label="Roof type" value={job.roofType || null} />
+              <Field label="System size" value={job.systemSize ? `${job.systemSize} kW` : null} />
               <Field label="Battery" value={job.battery ? "Yes" : "No"} />
+              <Field label="Roof type" value={job.roofType || null} />
+              <Field label="Arrays" value={job.arrayCount || null} />
+              <Field label="Deal" value={job.deal || null} />
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Section 6: Additional Details ──────────────────────────── */}
+      <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Additional Details</div>
+        {editing ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px 20px" }}>
+            <EditField label="Monitoring" name="monitoring" value={job.monitoring} onChange={handleChange} options={MONITORING_STATUSES} />
+            <EditField label="Monitoring Alerts" name="monitoringAlerts" value={job.monitoringAlerts} onChange={handleChange} type="number" />
+            <EditField label="Lifetime Production" name="lifetimeProduction" value={job.lifetimeProduction} onChange={handleChange} />
+            <EditField label="Build Partner" name="buildPartner" value={job.buildPartner} onChange={handleChange} />
+            <EditField label="Age (D)" name="ageD" value={job.ageD} onChange={handleChange} type="number" />
+            <EditField label="Contract Signed" name="contractSigned" value={job.contractSigned} onChange={handleChange} type="date" />
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            <Field label="Monitoring" value={job.monitoring || null} />
+            <Field label="Monitoring Alerts" value={job.monitoringAlerts ?? "—"} />
+            <Field label="Lifetime Production" value={job.lifetimeProduction || null} />
+            <Field label="Build Partner" value={job.buildPartner || null} />
+            <Field label="Age (D)" value={job.ageD ? `${job.ageD} days` : null} />
+            <Field label="Contract Signed" value={job.contractSigned ? new Date(job.contractSigned).toLocaleDateString() : null} />
+          </div>
+        )}
       </div>
 
       {/* Also show project/ops fields in edit mode */}
