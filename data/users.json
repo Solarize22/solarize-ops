@@ -25,5 +25,14 @@
     "role": "owner",
     "status": "active",
     "createdAt": "2026-03-20T14:29:15.602Z"
+  },
+  {
+    "id": "1774025935170",
+    "clerkId": "user_3BDa8MJYRK1gQHwjJQOwlk0uUkK",
+    "name": "tomyourell",
+    "email": "tomyourell@gmail.com",
+    "role": "owner",
+    "status": "active",
+    "createdAt": "2026-03-20T16:58:55.170Z"
   }
 ]

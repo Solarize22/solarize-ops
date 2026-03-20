@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { statusBadgeClass } from "@/lib/utils";
-import { Upload, Download, X, CheckCircle2, AlertTriangle, FileText } from "lucide-react";
+import { Upload, Download, X, CheckCircle2, AlertTriangle, FileText, Trash2, RefreshCw, History } from "lucide-react";
 
-// ── CSV parsing & mapping ────────────────────────────────────────────────────
+// â”€â”€ CSV parsing & mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const VALID_STATUSES = [
   "Scheduled", "Install Complete", "Inspection Scheduled",
@@ -115,6 +115,7 @@ function mapToJob(row, index) {
     inverter:        get("inverter"),
     battery:         bool(get("battery")),
     roofType:        get("roof_type"),
+    arrayCount:      parseInt(get("array_count", "arrays") || "0") || 0,
     rep:             get("rep", "salesperson"),
     financer:        get("financer", "finance"),
     m1InvoiceNumber: get("m1_invoice_number", "m1_invoice"),
@@ -130,9 +131,12 @@ function mapToJob(row, index) {
     crew,
     utilityCompany:  get("utility_company", "utility"),
     permitStatus:    get("permit_status") || "Not Submitted",
+    stage:           get("stage"),
     status:          normalizedStatus,
     installDate:     get("install_date", "due_date"),
     inspectionDate:  get("inspection_date", "inspection"),
+    ptoDate:         get("pto_date"),
+    siteSurveyDate:  get("site_survey_date"),
     nextAction:      get("next_action", "remaining_work"),
     notes:           [get("notes"), get("additional_notes")].filter(Boolean).join(" ").trim(),
     createdAt:       new Date().toISOString().split("T")[0],
@@ -152,8 +156,8 @@ function mapToJob(row, index) {
   };
 }
 
-// ── Update mapper: only includes fields actually present in CSV ──────────────
-// Used for "Update existing jobs" mode — never applies defaults, never blanks
+// â”€â”€ Update mapper: only includes fields actually present in CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Used for "Update existing jobs" mode â€” never applies defaults, never blanks
 // existing data. mapToJob is used for import only.
 function mapToJobUpdate(row) {
   const val = (...keys) => {
@@ -164,12 +168,21 @@ function mapToJobUpdate(row) {
   const money = v => parseFloat((v || "").replace(/[$,]/g, "")) || 0;
   const bool  = v => ["yes", "true", "1", "x"].includes((v || "").toLowerCase().trim());
 
-  const jobId = val("job_id", "job_#", "job_number", "id", "job#", "project_id");
-  if (!jobId) return null;
+  const jobId = (val("job_id", "job_#", "job_number", "id", "job#", "project_id") || "").trim();
+  const installDate = val("install_date", "due_date");
+  const hasM1Status = has("m1_status","m1_received","m1_paid");
+  const hasM2Status = has("m2_status","m2_received","m2_paid");
+  const m1Status = hasM1Status ? bool(val("m1_status","m1_received","m1_paid")) : null;
+  const m2Status = hasM2Status ? bool(val("m2_status","m2_received","m2_paid")) : null;
 
-  const result = { id: jobId };
+  const result = {
+    id: jobId,
+    _csvInstallDate: installDate,
+    _csvM1Status: m1Status,
+    _csvM2Status: m2Status,
+  };
 
-  // Text fields — only set if CSV cell is non-empty
+  // Text fields â€” only set if CSV cell is non-empty
   if (has("customer","customer_name","homeowner","name")) result.customer   = val("customer","customer_name","homeowner","name");
   if (has("phone","phone_number"))                        result.phone       = val("phone","phone_number");
   if (has("email","email_address"))                       result.email       = val("email","email_address");
@@ -186,9 +199,14 @@ function mapToJobUpdate(row) {
   if (has("inverter"))                                    result.inverter    = val("inverter");
   if (has("roof_type"))                                   result.roofType    = val("roof_type");
   if (has("system_size_kw","system_size","kw")) result.systemSize = val("system_size_kw","system_size","kw");
+  if (has("array_count","arrays")) {
+    const arrays = parseInt(val("array_count","arrays") || "0") || 0;
+    if (arrays > 0) result.arrayCount = arrays;
+  }
   if (has("next_action","remaining_work"))                result.nextAction  = val("next_action","remaining_work");
   if (has("notes","additional_notes"))                    result.notes       = [val("notes"), val("additional_notes")].filter(Boolean).join(" ").trim();
   if (has("permit_status"))                               result.permitStatus = val("permit_status");
+  if (has("stage"))                                       result.stage       = val("stage");
   if (has("hoa"))                                         result.hoa         = bool(val("hoa"));
   if (has("battery"))                                     result.battery     = bool(val("battery"));
   if (has("deal"))                                        result.deal        = val("deal");
@@ -196,7 +214,7 @@ function mapToJobUpdate(row) {
   if (has("contractor"))                                  result.contractor  = val("contractor");
   if (has("interconnection_status","interconnection"))    result.interconnectionStatus = val("interconnection_status","interconnection");
 
-  // Status — only if explicitly provided
+  // Status â€” only if explicitly provided
   const rawStatus = val("status");
   if (rawStatus) {
     result.status =
@@ -205,17 +223,19 @@ function mapToJobUpdate(row) {
       rawStatus;
   }
 
-  // Dates — only if present
-  if (has("install_date","due_date"))    result.installDate    = val("install_date","due_date");
+  // Dates â€” only if present
+  if (installDate) result.installDate = installDate;
   if (has("inspection_date","inspection")) result.inspectionDate = val("inspection_date","inspection");
+  if (has("pto_date")) result.ptoDate = val("pto_date");
+  if (has("site_survey_date")) result.siteSurveyDate = val("site_survey_date");
 
-  // Crew — only if present
+  // Crew â€” only if present
   if (has("crew","crew_members")) {
     const raw = val("crew","crew_members");
     result.crew = raw ? raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean) : [];
   }
 
-  // Amounts — only if present and > 0
+  // Amounts â€” only if present and > 0
   if (has("m1_amount","m1_amt")) {
     const v = money(val("m1_amount","m1_amt"));
     if (v > 0) result.m1Amount = v;
@@ -229,13 +249,13 @@ function mapToJobUpdate(row) {
     result.adders = v;
   }
 
-  // Status flags — only if explicitly present
-  if (has("m1_status","m1_received","m1_paid")) result.m1Status = bool(val("m1_status","m1_received","m1_paid"));
-  if (has("m2_status","m2_received","m2_paid")) result.m2Status = bool(val("m2_status","m2_received","m2_paid"));
+  // Status flags â€” only if explicitly present
+  if (hasM1Status) result.m1Status = m1Status;
+  if (hasM2Status) result.m2Status = m2Status;
   if (has("empower_f1","empower_f_1")) result.empowerF1 = bool(val("empower_f1","empower_f_1"));
   if (has("empower_f2","empower_f_2")) result.empowerF2 = bool(val("empower_f2","empower_f_2"));
 
-  // Numeric fields — only if present and non-zero
+  // Numeric fields â€” only if present and non-zero
   const panelCount = parseInt(val("panel_count","panels") || "0") || 0;
   if (panelCount) result.panelCount = panelCount;
   const watt = parseInt(val("watt","watt_per_panel","watt_panel","watts") || "0") || 0;
@@ -255,21 +275,21 @@ function mapToJobUpdate(row) {
     if (stage > 0) result.stageD = stage;
   }
   const v_buildPartner = val("build_partner","partner");
-  if (v_buildPartner && v_buildPartner !== "—") result.buildPartner = v_buildPartner;
+  if (v_buildPartner && v_buildPartner !== "â€”") result.buildPartner = v_buildPartner;
   const v_monitoring = val("monitoring");
-  if (v_monitoring && v_monitoring !== "—") result.monitoring = v_monitoring;
+  if (v_monitoring && v_monitoring !== "â€”") result.monitoring = v_monitoring;
   if (has("monitoring_alerts","alerts")) {
     const alerts = parseInt(val("monitoring_alerts","alerts") || "0") || 0;
     if (alerts > 0) result.monitoringAlerts = alerts;
   }
   const v_production = val("lifetime_production");
-  if (v_production && v_production !== "—") result.lifetimeProduction = v_production;
+  if (v_production && v_production !== "â€”") result.lifetimeProduction = v_production;
   const v_contractSigned = val("contract_signed","contract_date");
-  if (v_contractSigned && v_contractSigned !== "—") result.contractSigned = v_contractSigned;
+  if (v_contractSigned && v_contractSigned !== "â€”") result.contractSigned = v_contractSigned;
   const v_fileCreated = val("file_created");
-  if (v_fileCreated && v_fileCreated !== "—") result.fileCreated = v_fileCreated;
+  if (v_fileCreated && v_fileCreated !== "â€”") result.fileCreated = v_fileCreated;
   const v_syncDate = val("sync_date");
-  if (v_syncDate && v_syncDate !== "—") result.syncDate = v_syncDate;
+  if (v_syncDate && v_syncDate !== "â€”") result.syncDate = v_syncDate;
 
   return result;
 }
@@ -277,30 +297,30 @@ function mapToJobUpdate(row) {
 const TEMPLATE_HEADERS = [
   "job_id","customer","phone","email",
   "street","city","state","zip","hoa",
-  "system_size_kw","panel_count","watt_per_panel","inverter","battery","roof_type",
+  "system_size_kw","panel_count","watt_per_panel","inverter","battery","roof_type","array_count",
   "rep","financer","deal","module","qty",
   "m1_invoice_number","m2_invoice_number","m1_amount","m2_amount","adders",
   "m1_status","m2_status","empower_f1","empower_f2",
   "partner","contractor","crew","utility_company","interconnection_status",
-  "permit_status","status","install_date","inspection_date",
+  "permit_status","stage","status","install_date","inspection_date","pto_date","site_survey_date",
   "next_action","notes",
-  "monitoring","monitoring_alerts","lifetime_production","age_(d)","contract_signed",
+  "monitoring","monitoring_alerts","lifetime_production","build_partner","age_(d)","contract_signed","file_created","sync_date",
 ];
 
 const TEMPLATE_SAMPLE = [
   "CT-5274","Janvier Paulette","860-555-0192","paulette@email.com",
   "84 Elmwood Ave","Waterbury","CT","06704","No",
-  "14.4","36","400","Enphase IQ8A","No","Asphalt shingle",
+  "14.4","36","400","Enphase IQ8A","No","Asphalt shingle","2",
   "Tommy","GoodLeap","Loan","Enphase IQ8A 400W","36",
   "INV-2965","INV-2966","9302","2326","0",
   "Yes","No","No","No",
   "SolarCrew NE","Solarize","Tommy, Jake","Eversource CT","Approved",
-  "Approved","Install Complete","2026-03-03","",
-  "Schedule inspection","Sample job — delete this row",
-  "Active","0","","0","2026-01-15",
+  "Approved","Inspections","Install Complete","2026-03-03","","","2026-01-15",
+  "Schedule inspection","Sample job â€” delete this row",
+  "Active","0","28.9 MWh","Solarize Home Energy","0","2026-01-15","2026-01-10","2026-03-19",
 ];
 
-// ── Component ────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function ImportPage() {
   const [mode, setMode]       = useState("import"); // "import" | "update"
@@ -309,11 +329,36 @@ export default function ImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState(null);   // { rows: [...], existingIds }
   const [results, setResults] = useState(null);
+  const [resultAction, setResultAction] = useState("import");
   const [loading, setLoading] = useState(false);
+  const [importHistory, setImportHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [deletingBatchId, setDeletingBatchId] = useState("");
   const fileRef = useRef();
+
+  useEffect(() => {
+    loadImportHistory();
+  }, []);
 
   function reset() {
     setStep("upload"); setFileName(""); setPreview(null); setResults(null);
+    setResultAction("import");
+  }
+
+  async function loadImportHistory() {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const res = await fetch("/api/jobs?view=imports&limit=3");
+      if (!res.ok) throw new Error("Could not load recent imports");
+      const data = await res.json();
+      setImportHistory(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setHistoryError(err.message || "Could not load recent imports");
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   function downloadTemplate() {
@@ -333,7 +378,7 @@ export default function ImportPage() {
     if (!rawRows.length) return;
 
     const mapped = mode === "update"
-      ? rawRows.map(r => mapToJobUpdate(r)).filter(Boolean)
+      ? rawRows.map(r => mapToJobUpdate(r))
       : rawRows.map((r, i) => mapToJob(r, i));
 
     // Fetch existing jobs to check for duplicates / matches
@@ -369,7 +414,9 @@ export default function ImportPage() {
     const actionRows = preview.rows.filter(r =>
       mode === "import" ? r._status === "valid" : r._status === "matched"
     );
-    const payload = actionRows.map(({ _status, _reason, ...job }) => job);
+    const payload = actionRows.map(row => Object.fromEntries(
+      Object.entries(row).filter(([key]) => !key.startsWith("_"))
+    ));
 
     const skipped = preview.rows.filter(r => r._status !== "valid" && r._status !== "matched");
 
@@ -381,7 +428,10 @@ export default function ImportPage() {
         const res  = await fetch("/api/jobs", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify(payload),
+          body:    JSON.stringify({
+            jobs: payload,
+            importMeta: { fileName },
+          }),
         });
         const data = await res.json();
         succeeded  = data.added ?? payload.length;
@@ -399,18 +449,69 @@ export default function ImportPage() {
       }
 
       setResults({ total: preview.rows.length, succeeded, failed });
+      setResultAction(mode);
       setStep("done");
+      if (mode === "import") await loadImportHistory();
     } catch (err) {
-      setResults({ total: preview.rows.length, succeeded: 0, failed: [{ id: "—", reason: "Network error: " + err.message }] });
+      setResults({ total: preview.rows.length, succeeded: 0, failed: [{ id: "â€”", reason: "Network error: " + err.message }] });
       setStep("done");
     } finally {
       setLoading(false);
     }
   }
 
-  // ── Counts for preview ──
+  // â”€â”€ Counts for preview â”€â”€
+  async function handleDeleteImport(batch) {
+    const batchLabel = batch.fileName || batch.label || "this import";
+    const ok = window.confirm(`Delete ${batch.count} jobs from ${batchLabel}? This cannot be undone.`);
+    if (!ok) return;
+
+    setDeletingBatchId(batch.id);
+    try {
+      const res = await fetch(`/api/jobs?batchId=${encodeURIComponent(batch.id)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete import");
+      await loadImportHistory();
+      setResults({
+        total: batch.count,
+        succeeded: data.deleted ?? batch.count,
+        failed: [],
+      });
+      setResultAction("delete");
+      setMode("import");
+      setStep("done");
+      setFileName(batchLabel);
+    } catch (err) {
+      window.alert(err.message || "Could not delete import");
+    } finally {
+      setDeletingBatchId("");
+    }
+  }
+
+  function formatImportDate(value) {
+    if (!value) return "Unknown date";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
   const validCount     = preview?.rows.filter(r => r._status === "valid" || r._status === "matched").length ?? 0;
   const skippedCount   = preview?.rows.filter(r => r._status !== "valid" && r._status !== "matched").length ?? 0;
+  const matchedCount   = preview?.rows.filter(r => r._status === "matched").length ?? 0;
+  const missingIdCount = preview?.rows.filter(r => r._reason === "Missing job number").length ?? 0;
+  const notFoundCount  = preview?.rows.filter(r => r._reason === "Job number not found").length ?? 0;
+
+  function renderUpdateValue(value, trueLabel = "Yes", falseLabel = "No") {
+    if (value === null || value === undefined || value === "") return "No change";
+    if (typeof value === "boolean") return value ? trueLabel : falseLabel;
+    return value;
+  }
 
   return (
     <AppShell>
@@ -441,7 +542,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── Upload step ── */}
+      {/* â”€â”€ Upload step â”€â”€ */}
       {step === "upload" && (
         <div style={{ maxWidth: 600 }}>
           {/* Drop zone */}
@@ -478,22 +579,107 @@ export default function ImportPage() {
             </div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 5 }}>
               {mode === "import" ? <>
-                <div>✓ Required columns: <strong>job_id</strong>, <strong>customer</strong>, <strong>street</strong> (or <strong>city</strong>)</div>
-                <div>✓ Rows where the job number already exists will be skipped</div>
-                <div>✓ All other fields are optional</div>
+                <div>âœ“ Required columns: <strong>job_id</strong>, <strong>customer</strong>, <strong>street</strong> (or <strong>city</strong>)</div>
+                <div>âœ“ Rows where the job number already exists will be skipped</div>
+                <div>âœ“ All other fields are optional</div>
               </> : <>
-                <div>✓ Required column: <strong>job_id</strong> — used to match each row to an existing job</div>
-                <div>✓ Only fills in columns that have a value — blank cells don't overwrite</div>
-                <div>✓ Rows where the job number is not found will be skipped</div>
+                <div>âœ“ Required column: <strong>job_id</strong> â€” used to match each row to an existing job</div>
+                <div>âœ“ Only fills in columns that have a value â€” blank cells don't overwrite</div>
+                <div>âœ“ Rows where the job number is not found will be skipped</div>
               </>}
-              <div>✓ Dates in any format (2026-03-15 or 3/15/2026)</div>
-              <div>✓ Crew: comma-separated names in one cell</div>
+              <div>âœ“ Dates in any format (2026-03-15 or 3/15/2026)</div>
+              <div>âœ“ Crew: comma-separated names in one cell</div>
             </div>
           </div>
+
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 10 }}>
+            Supported CSV fields also include <span className="mono">monitoring</span>, <span className="mono">monitoring_alerts</span>, and <span className="mono">lifetime_production</span>.
+          </div>
+
+          {(mode === "import" || mode === "update") && (
+            <div className="card" style={{ padding: "18px 18px 14px", marginTop: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <History size={14} style={{ color: "var(--text-secondary)" }} />
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>Recent imports</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    Review the last three import batches and delete one if you need to roll it back.
+                  </div>
+                </div>
+                <button
+                  className="btn btn-outline"
+                  onClick={loadImportHistory}
+                  disabled={historyLoading}
+                  style={{ display: "flex", alignItems: "center", gap: 7 }}
+                >
+                  <RefreshCw size={13} />
+                  Refresh
+                </button>
+              </div>
+
+              {historyLoading ? (
+                <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Loading recent importsÃ¢â‚¬Â¦</div>
+              ) : historyError ? (
+                <div style={{ fontSize: 13, color: "#b91c1c" }}>{historyError}</div>
+              ) : importHistory.length === 0 ? (
+                <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                  No tracked imports yet. New imports will appear here automatically.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {importHistory.map(batch => (
+                    <div
+                      key={batch.id}
+                      style={{
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "14px 14px 12px",
+                        background: "var(--surface-2)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                            {batch.fileName || batch.label || "Imported jobs"}
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
+                            {formatImportDate(batch.createdAt)} â€¢ {batch.count} job{batch.count !== 1 ? "s" : ""}
+                            {batch.source === "legacy" ? " â€¢ legacy group" : ""}
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {(batch.previewJobIds || []).map(jobId => (
+                              <span key={jobId} className="mono badge badge-slate">{jobId}</span>
+                            ))}
+                            {batch.count > (batch.previewJobIds || []).length && (
+                              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                                +{batch.count - (batch.previewJobIds || []).length} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          className="btn btn-outline"
+                          onClick={() => handleDeleteImport(batch)}
+                          disabled={deletingBatchId === batch.id}
+                          style={{ display: "flex", alignItems: "center", gap: 7, color: "#b91c1c", borderColor: "#fecaca" }}
+                        >
+                          <Trash2 size={13} />
+                          {deletingBatchId === batch.id ? "DeletingÃ¢â‚¬Â¦" : "Delete import"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Preview step ── */}
+      {/* â”€â”€ Preview step â”€â”€ */}
       {step === "preview" && preview && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
@@ -503,12 +689,31 @@ export default function ImportPage() {
                 <span style={{ fontWeight: 600 }}>{fileName}</span>
               </div>
               <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                <span style={{ color: "var(--green)", fontWeight: 600 }}>{validCount} row{validCount !== 1 ? "s" : ""}</span>
-                {" "}will be {mode === "import" ? "imported" : "updated"}
-                {skippedCount > 0 && (
-                  <span style={{ color: "#dc2626", marginLeft: 10, fontWeight: 600 }}>
-                    {skippedCount} will be skipped
-                  </span>
+                {mode === "import" ? (
+                  <>
+                    <span style={{ color: "var(--green)", fontWeight: 600 }}>{validCount} row{validCount !== 1 ? "s" : ""}</span>
+                    {" "}will be imported
+                    {skippedCount > 0 && (
+                      <span style={{ color: "#dc2626", marginLeft: 10, fontWeight: 600 }}>
+                        {skippedCount} will be skipped
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: "var(--green)", fontWeight: 600 }}>{matchedCount} matched row{matchedCount !== 1 ? "s" : ""}</span>
+                    {" "}will update the app
+                    {missingIdCount > 0 && (
+                      <span style={{ color: "#dc2626", marginLeft: 10, fontWeight: 600 }}>
+                        {missingIdCount} missing job number
+                      </span>
+                    )}
+                    {notFoundCount > 0 && (
+                      <span style={{ color: "#dc2626", marginLeft: 10, fontWeight: 600 }}>
+                        {notFoundCount} not found
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -522,7 +727,7 @@ export default function ImportPage() {
                 onClick={handleConfirm}
                 disabled={loading || validCount === 0}
               >
-                {loading ? "Processing…" : mode === "import"
+                {loading ? "Processingâ€¦" : mode === "import"
                   ? `Import ${validCount} job${validCount !== 1 ? "s" : ""}`
                   : `Update ${validCount} job${validCount !== 1 ? "s" : ""}`}
               </button>
@@ -537,10 +742,21 @@ export default function ImportPage() {
                     <th>Status</th>
                     <th>Job #</th>
                     <th>Customer</th>
-                    <th>Address</th>
-                    <th>Job status</th>
-                    <th>Install date</th>
-                    <th>Crew</th>
+                    {mode === "import" ? (
+                      <>
+                        <th>Address</th>
+                        <th>Job status</th>
+                        <th>Install date</th>
+                        <th>Crew</th>
+                      </>
+                    ) : (
+                      <>
+                        <th>M1</th>
+                        <th>M2</th>
+                        <th>Install date</th>
+                        <th>Updates</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -558,16 +774,35 @@ export default function ImportPage() {
                               </span>
                           }
                         </td>
-                        <td><span className="mono badge badge-slate">{row.id}</span></td>
+                        <td><span className="mono badge badge-slate">{row.id || "—"}</span></td>
                         <td style={{ fontWeight: 500 }}>{row.customer || <span style={{ color: "#dc2626" }}>—</span>}</td>
-                        <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                          {[row.street, row.city, row.state].filter(Boolean).join(", ") || "—"}
-                        </td>
-                        <td><span className={`badge ${statusBadgeClass(row.status)}`}>{row.status}</span></td>
-                        <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{row.installDate || "—"}</td>
-                        <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                          {row.crew?.length ? row.crew.join(", ") : "—"}
-                        </td>
+                        {mode === "import" ? (
+                          <>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {[row.street, row.city, row.state].filter(Boolean).join(", ") || "—"}
+                            </td>
+                            <td><span className={`badge ${statusBadgeClass(row.status)}`}>{row.status}</span></td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{row.installDate || "—"}</td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {row.crew?.length ? row.crew.join(", ") : "—"}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {renderUpdateValue(row._csvM1Status)}
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {renderUpdateValue(row._csvM2Status)}
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {renderUpdateValue(row._csvInstallDate)}
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                              {row._status === "matched" ? "Will update matched job" : row._reason}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
@@ -578,7 +813,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── Done step ── */}
+      {/* â”€â”€ Done step â”€â”€ */}
       {step === "done" && results && (
         <div style={{ maxWidth: 520 }}>
           <div className="card" style={{ padding: 28, marginBottom: 16 }}>
@@ -586,7 +821,7 @@ export default function ImportPage() {
               <CheckCircle2 size={28} style={{ color: "var(--green)", flexShrink: 0 }} />
               <div>
                 <div style={{ fontWeight: 700, fontSize: 17 }}>
-                  {mode === "import" ? "Import complete" : "Update complete"}
+                  {resultAction === "delete" ? "Import deleted" : mode === "import" ? "Import complete" : "Update complete"}
                 </div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
                   {fileName}
@@ -598,7 +833,7 @@ export default function ImportPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: results.failed.length ? 20 : 0 }}>
               {[
                 { label: "Rows processed", value: results.total, color: "var(--text-primary)" },
-                { label: mode === "import" ? "Imported" : "Updated", value: results.succeeded, color: "var(--green)" },
+                { label: resultAction === "delete" ? "Deleted" : mode === "import" ? "Imported" : "Updated", value: results.succeeded, color: "var(--green)" },
                 { label: "Skipped", value: results.failed.length, color: results.failed.length ? "#dc2626" : "var(--text-tertiary)" },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
@@ -622,7 +857,7 @@ export default function ImportPage() {
                       borderTop: i > 0 ? "1px solid #fecaca" : undefined,
                       alignItems: "baseline",
                     }}>
-                      <span className="mono badge badge-slate" style={{ flexShrink: 0 }}>{f.id || "—"}</span>
+                      <span className="mono badge badge-slate" style={{ flexShrink: 0 }}>{f.id || "â€”"}</span>
                       {f.customer && <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>{f.customer}</span>}
                       <span style={{ color: "#dc2626" }}>{f.reason}</span>
                     </div>
@@ -633,7 +868,7 @@ export default function ImportPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <a href="/jobs" className="btn btn-primary">View jobs →</a>
+            <a href="/jobs" className="btn btn-primary">View jobs â†’</a>
             <button className="btn btn-outline" onClick={reset}>
               {mode === "import" ? "Import another file" : "Update another file"}
             </button>

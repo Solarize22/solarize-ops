@@ -1,0 +1,359 @@
+
+> solarize-ops@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.29
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1159ms
+ ✓ Compiled /middleware in 160ms (189 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1842ms (847 modules)
+ GET /import 404 in 1993ms
+ ✓ Compiled in 112ms (344 modules)
+ ○ Compiling /import ...
+ ✓ Compiled /import in 557ms (1028 modules)
+ GET /import 200 in 693ms
+ ✓ Compiled /api/users/me in 149ms (634 modules)
+ ✓ Compiled (636 modules)
+ POST /import 200 in 271ms
+ POST /import 200 in 13ms
+ GET /api/jobs?view=imports&limit=3 200 in 520ms
+ GET /api/users/me 200 in 537ms
+ GET /api/jobs?view=imports&limit=3 200 in 141ms
+ GET /api/users/me 200 in 133ms
+ GET /api/users/me 200 in 140ms
+ GET /api/users/me 200 in 161ms
+ GET / 404 in 41ms
+ GET /jobs 404 in 48ms
+ GET /import 200 in 61ms
+ POST /import 200 in 14ms
+ POST /import 200 in 20ms
+ GET /api/users/me 200 in 156ms
+ GET /api/jobs?view=imports&limit=3 200 in 206ms
+ GET /api/users/me 200 in 116ms
+ GET /api/jobs?view=imports&limit=3 200 in 148ms
+ GET /api/users/me 200 in 112ms
+ GET /api/users/me 200 in 97ms
+ GET /api/jobs 200 in 175ms
+ PUT /api/jobs 200 in 12ms
+ ✓ Compiled /jobs in 184ms (1073 modules)
+ GET /jobs 200 in 291ms
+ POST /jobs 200 in 26ms
+ POST /jobs 200 in 8ms
+ GET /api/jobs 200 in 164ms
+ GET /api/users/me 200 in 189ms
+ GET /api/jobs 200 in 118ms
+ GET /api/users/me 200 in 127ms
+ GET /api/users/me 200 in 135ms
+ GET /api/users/me 200 in 129ms
+ ✓ Compiled /jobs/[id] in 207ms (1105 modules)
+ GET /jobs/5301 200 in 492ms
+ POST /jobs/5301 200 in 22ms
+ POST /jobs/5301 200 in 20ms
+ GET /api/users/me 200 in 182ms
+ GET /api/jobs 200 in 194ms
+ GET /api/jobs 200 in 122ms
+ GET /api/users/me 200 in 153ms
+ GET /api/users/me 200 in 117ms
+ GET /api/users/me 200 in 132ms
+ GET /api/jobs 200 in 184ms
+ GET /api/users/me 200 in 191ms
+ GET /api/users/me 200 in 106ms
+ GET /api/jobs 200 in 128ms
+ GET /jobs/4111 200 in 58ms
+ POST /jobs/4111 200 in 26ms
+ POST /jobs/4111 200 in 8ms
+ GET /api/users/me 200 in 224ms
+ GET /api/jobs 200 in 256ms
+ GET /api/jobs 200 in 110ms
+ GET /api/users/me 200 in 144ms
+ GET /api/users/me 200 in 121ms
+ GET /api/users/me 200 in 101ms
+ GET /api/users/me 200 in 222ms
+ GET /api/jobs?view=imports&limit=3 200 in 236ms
+ GET /api/jobs?view=imports&limit=3 200 in 138ms
+ GET /api/users/me 200 in 159ms
+ GET /api/jobs 200 in 157ms
+ PUT /api/jobs 200 in 17ms
+ GET /jobs 200 in 71ms
+ POST /jobs 200 in 15ms
+ POST /jobs 200 in 8ms
+ GET /api/users/me 200 in 147ms
+ GET /api/jobs 200 in 302ms
+ GET /api/users/me 200 in 150ms
+ GET /api/users/me 200 in 111ms
+ GET /api/jobs 200 in 179ms
+ GET /api/users/me 200 in 137ms
+ ✓ Compiled /invoices in 481ms (1118 modules)
+ GET /api/jobs 200 in 123ms
+ GET /api/users/me 200 in 143ms
+ GET /api/jobs 200 in 113ms
+ GET /api/users/me 200 in 140ms
+ GET /api/users/me 200 in 115ms
+ GET /api/jobs 200 in 145ms
+ GET /api/users/me 200 in 126ms
+ GET /api/jobs 200 in 146ms
+ GET /api/jobs?view=imports&limit=3 200 in 119ms
+ GET /api/users/me 200 in 126ms
+ GET /api/jobs?view=imports&limit=3 200 in 127ms
+ GET /api/users/me 200 in 132ms
+ GET /api/jobs?view=imports&limit=3 200 in 113ms
+ GET /api/jobs?view=imports&limit=3 200 in 116ms
+ GET /api/jobs?view=imports&limit=3 200 in 122ms
+ ✓ Compiled in 394ms (1123 modules)
+ GET /import 200 in 120ms
+ POST /import 200 in 16ms
+ POST /import 200 in 9ms
+ GET /api/users/me 200 in 166ms
+ GET /api/jobs?view=imports&limit=3 200 in 228ms
+ GET /api/users/me 200 in 101ms
+ GET /api/users/me 200 in 100ms
+ GET /api/jobs?view=imports&limit=3 200 in 154ms
+ GET /api/users/me 200 in 139ms
+ DELETE /api/jobs?batchId=import-2026-03-20T17-31-23-406Z 200 in 189ms
+ GET /api/jobs?view=imports&limit=3 200 in 116ms
+ GET /jobs 200 in 64ms
+ POST /jobs 200 in 12ms
+ POST /jobs 200 in 9ms
+ GET /api/users/me 200 in 166ms
+ GET /api/jobs 200 in 184ms
+ GET /api/users/me 200 in 129ms
+ GET /api/jobs 200 in 119ms
+ GET /api/users/me 200 in 120ms
+ GET /api/users/me 200 in 121ms
+ GET /api/users/me 200 in 103ms
+ GET /api/jobs?view=imports&limit=3 200 in 140ms
+ GET /api/users/me 200 in 133ms
+ GET /api/jobs?view=imports&limit=3 200 in 102ms
+ GET /api/jobs 200 in 144ms
+ POST /api/jobs 200 in 10ms
+ GET /api/jobs?view=imports&limit=3 200 in 188ms
+ GET /jobs 200 in 61ms
+ POST /jobs 200 in 11ms
+ POST /jobs 200 in 8ms
+ GET /api/users/me 200 in 197ms
+ GET /api/jobs 200 in 296ms
+ GET /api/users/me 200 in 116ms
+ GET /api/users/me 200 in 99ms
+ GET /api/jobs 200 in 135ms
+ GET /api/users/me 200 in 147ms
+ ✓ Compiled / in 358ms (1136 modules)
+ ✓ Compiled in 90ms (467 modules)
+ GET /api/jobs 200 in 134ms
+ GET /api/users/me 200 in 141ms
+ GET /api/users/me 200 in 111ms
+ GET /api/jobs 200 in 146ms
+ GET /api/users/me 200 in 143ms
+ GET /api/jobs 200 in 144ms
+ GET /api/jobs 200 in 131ms
+ GET /api/users/me 200 in 170ms
+ ✓ Compiled /scheduling in 179ms (1147 modules)
+ GET /api/jobs 200 in 123ms
+ GET /api/users/me 200 in 130ms
+ GET /api/users/me 200 in 122ms
+ GET /api/jobs 200 in 155ms
+ ✓ Compiled /invoices in 105ms (683 modules)
+ GET /api/users/me 200 in 134ms
+ GET /api/jobs 200 in 136ms
+ GET /api/jobs 200 in 100ms
+ GET /api/users/me 200 in 135ms
+ GET /api/users/me 200 in 132ms
+ GET /api/jobs 200 in 138ms
+ GET /api/jobs 200 in 114ms
+ GET /api/users/me 200 in 138ms
+ GET /api/users/me 200 in 134ms
+ GET /api/jobs?view=imports&limit=3 200 in 160ms
+ GET /api/users/me 200 in 121ms
+ GET /api/jobs?view=imports&limit=3 200 in 127ms
+ GET /api/jobs 200 in 135ms
+ PUT /api/jobs 200 in 12ms
+ GET /api/jobs 200 in 659ms
+ PUT /api/jobs 200 in 19ms
+ GET /api/users/me 200 in 200ms
+ GET /api/jobs 200 in 199ms
+ GET /api/users/me 200 in 118ms
+ GET /api/jobs 200 in 134ms
+ GET /api/users/me 200 in 111ms
+ GET /api/jobs 200 in 134ms
+ GET /api/users/me 200 in 118ms
+ GET /api/jobs 200 in 128ms
+ GET /jobs/5110 200 in 132ms
+ POST /jobs/5110 200 in 24ms
+ POST /jobs/5110 200 in 37ms
+ GET /api/jobs 200 in 127ms
+ GET /api/users/me 200 in 134ms
+ GET /api/jobs 200 in 108ms
+ GET /api/users/me 200 in 119ms
+ GET /api/users/me 200 in 137ms
+ GET /api/users/me 200 in 127ms
+ GET /api/users/me 200 in 156ms
+ GET /api/jobs 200 in 164ms
+ GET /api/jobs 200 in 117ms
+ GET /api/users/me 200 in 130ms
+ GET /api/users/me 200 in 209ms
+ GET /api/jobs 200 in 225ms
+ GET /api/users/me 200 in 113ms
+ GET /api/jobs 200 in 139ms
+ GET /jobs/CT-5274 200 in 106ms
+ POST /jobs/CT-5274 200 in 27ms
+ POST /jobs/CT-5274 200 in 37ms
+ GET /api/jobs 200 in 116ms
+ GET /api/users/me 200 in 141ms
+ GET /api/jobs 200 in 130ms
+ GET /api/users/me 200 in 114ms
+ GET /api/users/me 200 in 137ms
+ GET /api/users/me 200 in 127ms
+ ✓ Compiled in 305ms (1111 modules)
+ ✓ Compiled in 300ms (1111 modules)
+ ✓ Compiled in 189ms (1111 modules)
+ ✓ Compiled in 228ms (1111 modules)
+ ✓ Compiled in 179ms (1111 modules)
+ GET /jobs/CT-5274 200 in 105ms
+ ✓ Compiled /api/jobs in 222ms (665 modules)
+ ✓ Compiled (669 modules)
+ POST /jobs/CT-5274 200 in 391ms
+ POST /jobs/CT-5274 200 in 39ms
+ GET /api/users/me 200 in 562ms
+ GET /api/jobs 200 in 564ms
+ GET /api/users/me 200 in 106ms
+ GET /api/jobs 200 in 109ms
+ GET /api/users/me 200 in 119ms
+ GET /api/users/me 200 in 100ms
+ GET /api/users/me 200 in 109ms
+ GET /api/jobs?view=imports&limit=3 200 in 119ms
+ GET /api/jobs?view=imports&limit=3 200 in 118ms
+ GET /api/users/me 200 in 139ms
+ GET / 200 in 101ms
+ POST / 200 in 14ms
+ POST / 200 in 22ms
+ GET /api/users/me 200 in 234ms
+ GET /api/jobs 200 in 271ms
+ GET /api/users/me 200 in 117ms
+ GET /api/jobs 200 in 129ms
+ GET /api/users/me 200 in 125ms
+ GET /api/users/me 200 in 131ms
+ GET /api/users/me 200 in 107ms
+ GET /api/jobs?view=imports&limit=3 200 in 142ms
+ GET /api/users/me 200 in 130ms
+ GET /api/jobs?view=imports&limit=3 200 in 117ms
+ DELETE /api/jobs?batchId=import-2026-03-20T19-07-58-790Z 200 in 156ms
+ GET /api/jobs?view=imports&limit=3 200 in 130ms
+ GET /jobs 200 in 75ms
+ POST /jobs 200 in 11ms
+ POST /jobs 200 in 24ms
+ GET /api/users/me 200 in 110ms
+ GET /api/jobs 200 in 182ms
+ GET /api/users/me 200 in 98ms
+ GET /api/jobs 200 in 111ms
+ GET /api/users/me 200 in 416ms
+ GET /api/users/me 200 in 113ms
+ GET /api/users/me 200 in 106ms
+ GET /api/jobs 200 in 142ms
+ GET /api/jobs 200 in 117ms
+ GET /api/users/me 200 in 157ms
+ GET /api/jobs 200 in 105ms
+ GET /api/users/me 200 in 122ms
+ GET /api/jobs 200 in 95ms
+ GET /api/users/me 200 in 121ms
+ GET /api/users/me 200 in 108ms
+ GET /api/jobs?view=imports&limit=3 200 in 119ms
+ GET /api/jobs?view=imports&limit=3 200 in 116ms
+ GET /api/users/me 200 in 142ms
+ GET /api/jobs 200 in 180ms
+ POST /api/jobs 200 in 12ms
+ GET /api/jobs?view=imports&limit=3 200 in 368ms
+ GET /api/jobs 200 in 239ms
+ GET /api/users/me 200 in 263ms
+ GET /api/jobs 200 in 115ms
+ GET /api/users/me 200 in 104ms
+ GET /api/jobs 200 in 160ms
+ GET /api/users/me 200 in 163ms
+ GET /api/jobs 200 in 121ms
+ GET /api/users/me 200 in 140ms
+ ✓ Compiled /invoices in 245ms (677 modules)
+ GET /api/jobs 200 in 157ms
+ GET /api/users/me 200 in 166ms
+ GET /api/jobs 200 in 133ms
+ GET /api/users/me 200 in 133ms
+ GET /api/users/me 200 in 125ms
+ GET /api/jobs 200 in 142ms
+ GET /api/jobs 200 in 128ms
+ GET /api/users/me 200 in 150ms
+ GET /jobs/5110 200 in 105ms
+ POST /jobs/5110 200 in 34ms
+ POST /jobs/5110 200 in 20ms
+ GET /api/jobs 200 in 132ms
+ GET /api/users/me 200 in 136ms
+ GET /api/users/me 200 in 115ms
+ GET /api/jobs 200 in 129ms
+ GET /api/users/me 200 in 170ms
+ GET /api/users/me 200 in 128ms
+ GET /api/jobs 200 in 229ms
+ GET /api/users/me 200 in 232ms
+ GET /api/jobs 200 in 139ms
+ GET /api/users/me 200 in 154ms
+ GET /jobs/4429 200 in 69ms
+ POST /jobs/4429 200 in 25ms
+ POST /jobs/4429 200 in 15ms
+ GET /api/jobs 200 in 186ms
+ GET /api/users/me 200 in 192ms
+ GET /api/users/me 200 in 122ms
+ GET /api/jobs 200 in 157ms
+ GET /api/users/me 200 in 119ms
+ GET /api/users/me 200 in 119ms
+ GET /api/users/me 200 in 276ms
+ GET /api/jobs 200 in 288ms
+ GET /api/users/me 200 in 108ms
+ GET /api/jobs 200 in 130ms
+ GET /jobs/5042 200 in 74ms
+ POST /jobs/5042 200 in 29ms
+ POST /jobs/5042 200 in 37ms
+ GET /api/jobs 200 in 134ms
+ GET /api/users/me 200 in 136ms
+ GET /api/users/me 200 in 109ms
+ GET /api/jobs 200 in 118ms
+ GET /api/users/me 200 in 128ms
+ GET /api/users/me 200 in 125ms
+ GET /api/users/me 200 in 136ms
+ GET /api/jobs 200 in 146ms
+ GET /api/users/me 200 in 103ms
+ GET /api/jobs 200 in 114ms
+ GET /api/users/me 200 in 176ms
+ GET /api/jobs 200 in 214ms
+ GET /api/users/me 200 in 130ms
+ GET /api/jobs 200 in 133ms
+ GET /api/users/me 200 in 147ms
+ GET /api/jobs 200 in 186ms
+ GET /api/users/me 200 in 115ms
+ GET /api/jobs 200 in 125ms
+ GET /api/users/me 200 in 119ms
+ GET /api/jobs 200 in 172ms
+ GET /api/users/me 200 in 106ms
+ GET /api/jobs 200 in 166ms
+ ✓ Compiled /service in 442ms (1156 modules)
+ ✓ Compiled in 128ms (474 modules)
+ GET /api/users/me 200 in 170ms
+ GET /api/jobs 200 in 197ms
+ GET /api/users/me 200 in 125ms
+ GET /api/jobs 200 in 129ms
+ ✓ Compiled /reports in 188ms (1154 modules)
+ GET /api/jobs 200 in 142ms
+ GET /api/users/me 200 in 148ms
+ GET /api/jobs 200 in 135ms
+ GET /api/users/me 200 in 135ms
+ GET /api/users/me 200 in 237ms
+ GET /api/jobs 200 in 240ms
+ GET /api/users/me 200 in 117ms
+ GET /api/jobs 200 in 140ms
+ GET /jobs/1814 200 in 111ms
+ POST /jobs/1814 200 in 25ms
+ POST /jobs/1814 200 in 8ms
+ GET /api/jobs 200 in 166ms
+ GET /api/users/me 200 in 204ms
+ GET /api/jobs 200 in 125ms
+ GET /api/users/me 200 in 125ms
+ GET /api/users/me 200 in 108ms
+ GET /api/users/me 200 in 127ms
