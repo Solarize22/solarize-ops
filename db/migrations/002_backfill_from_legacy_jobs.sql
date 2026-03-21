@@ -46,7 +46,28 @@ select
   nullif(trim(j.data->>'m2InvoiceNumber'), '') as m2_invoice_number,
   coalesce(nullif(trim(j.data->>'m1Amount'), '')::numeric, 0) as m1_amount,
   coalesce(nullif(trim(j.data->>'m2Amount'), '')::numeric, 0) as m2_amount,
-  coalesce(nullif(trim(j.data->>'adders'), '')::numeric, 0) as adders_amount,
+  case
+    when jsonb_typeof(j.data->'adders') = 'array' then coalesce((
+      select sum(
+        case
+          when jsonb_typeof(elem) = 'object'
+            and coalesce(elem->>'cost', elem->>'amount', '') ~ '^-?[0-9]+(\.[0-9]+)?$'
+            then coalesce((elem->>'cost')::numeric, (elem->>'amount')::numeric)
+          when jsonb_typeof(elem) in ('string', 'number')
+            and trim(elem #>> '{}') ~ '^-?[0-9]+(\.[0-9]+)?$'
+            then (trim(elem #>> '{}'))::numeric
+          else 0
+        end
+      )
+      from jsonb_array_elements(j.data->'adders') elem
+    ), 0)
+    when jsonb_typeof(j.data->'adders') = 'object'
+      and coalesce(j.data->'adders'->>'cost', j.data->'adders'->>'amount', '') ~ '^-?[0-9]+(\.[0-9]+)?$'
+      then coalesce((j.data->'adders'->>'cost')::numeric, (j.data->'adders'->>'amount')::numeric)
+    when coalesce(trim(j.data->>'adders'), '') ~ '^-?[0-9]+(\.[0-9]+)?$'
+      then (trim(j.data->>'adders'))::numeric
+    else 0
+  end as adders_amount,
   coalesce((j.data->>'m1Status')::boolean, false) as m1_paid_flag,
   coalesce((j.data->>'m2Status')::boolean, false) as m2_paid_flag,
   nullif(trim(j.data->>'inspectionDate'), '') as inspection_date_raw,
@@ -129,7 +150,7 @@ normalized_jobs as (
     gen_random_uuid() as new_job_id,
     c.company_id,
     coalesce(f.legacy_job_number, f.legacy_row_id) as job_number,
-    null::text as external_job_id,
+    f.legacy_row_id as external_job_id,
     coalesce(f.customer_name, 'Unknown Customer') as customer_name,
     f.customer_phone,
     f.customer_email,
@@ -179,8 +200,7 @@ normalized_jobs as (
     true as is_active,
     concat_ws(E'\n', f.notes, f.next_action) as notes,
     coalesce(nullif(f.created_at_raw, '')::timestamptz, now()) as created_at,
-    coalesce(nullif(f.updated_at_raw, '')::timestamptz, now()) as updated_at,
-    f.*
+    coalesce(nullif(f.updated_at_raw, '')::timestamptz, now()) as updated_at
   from legacy_jobs_flat f
   cross join company_cte c
   left join rep_map r
@@ -266,7 +286,13 @@ select
   notes,
   created_at,
   updated_at
-from normalized_jobs;
+from normalized_jobs nj
+where not exists (
+  select 1
+  from jobs existing
+  where existing.company_id = nj.company_id
+    and existing.job_number = nj.job_number
+);
 
 create temp table migrated_job_map as
 select
@@ -305,7 +331,7 @@ select
     when coalesce(m.inspection_status, '') = 'Failed' then 'failed'::inspection_result
     when coalesce(m.inspection_status, '') = 'Passed' then 'passed'::inspection_result
     when m.inspection_date_raw is not null then 'scheduled'::inspection_result
-    else null
+    else 'scheduled'::inspection_result
   end,
   m.permit_status,
   m.notes,
@@ -336,7 +362,18 @@ insert into invoices (
 select
   j.company_id,
   m.new_job_id,
-  coalesce(m.m1_invoice_number, 'MIG-M1-' || j.job_number),
+  case
+    when m.m1_invoice_number is null then 'MIG-M1-' || j.job_number
+    when count(*) over (partition by m.m1_invoice_number) > 1
+      or exists (
+        select 1
+        from invoices existing
+        where existing.company_id = j.company_id
+          and existing.invoice_number = m.m1_invoice_number
+      )
+      then m.m1_invoice_number || '-' || j.job_number
+    else m.m1_invoice_number
+  end,
   'm1'::invoice_type,
   case
     when m.m1_paid_flag then 'paid'::invoice_status
@@ -358,7 +395,13 @@ select
   j.updated_at
 from migrated_job_map m
 join jobs j on j.id = m.new_job_id
-where m.m1_amount > 0 or m.m1_invoice_number is not null;
+where (m.m1_amount > 0 or m.m1_invoice_number is not null)
+  and not exists (
+    select 1
+    from invoices existing
+    where existing.job_id = m.new_job_id
+      and existing.invoice_type = 'm1'
+  );
 
 insert into invoices (
   company_id,
@@ -380,7 +423,18 @@ insert into invoices (
 select
   j.company_id,
   m.new_job_id,
-  coalesce(m.m2_invoice_number, 'MIG-M2-' || j.job_number),
+  case
+    when m.m2_invoice_number is null then 'MIG-M2-' || j.job_number
+    when count(*) over (partition by m.m2_invoice_number) > 1
+      or exists (
+        select 1
+        from invoices existing
+        where existing.company_id = j.company_id
+          and existing.invoice_number = m.m2_invoice_number
+      )
+      then m.m2_invoice_number || '-' || j.job_number
+    else m.m2_invoice_number
+  end,
   'm2'::invoice_type,
   case
     when m.m2_paid_flag then 'paid'::invoice_status
@@ -402,7 +456,13 @@ select
   j.updated_at
 from migrated_job_map m
 join jobs j on j.id = m.new_job_id
-where m.m2_amount > 0 or m.m2_invoice_number is not null;
+where (m.m2_amount > 0 or m.m2_invoice_number is not null)
+  and not exists (
+    select 1
+    from invoices existing
+    where existing.job_id = m.new_job_id
+      and existing.invoice_type = 'm2'
+  );
 
 insert into invoices (
   company_id,
@@ -439,7 +499,13 @@ select
   j.updated_at
 from migrated_job_map m
 join jobs j on j.id = m.new_job_id
-where m.adders_amount > 0;
+where m.adders_amount > 0
+  and not exists (
+    select 1
+    from invoices existing
+    where existing.job_id = m.new_job_id
+      and existing.invoice_type = 'adder'
+  );
 
 insert into invoice_line_items (invoice_id, line_type, description, amount_cents, sort_order, created_at)
 select
@@ -484,7 +550,7 @@ select
   i.updated_at
 from invoices i
 join jobs j on j.id = i.job_id
-where i.invoice_type = 'm1' and i.status = 'paid';
+where i.invoice_type = 'm1' and i.status = 'paid' and i.total_cents > 0;
 
 insert into payments (
   company_id,
@@ -513,7 +579,7 @@ select
   i.updated_at
 from invoices i
 join jobs j on j.id = i.job_id
-where i.invoice_type = 'm2' and i.status = 'paid';
+where i.invoice_type = 'm2' and i.status = 'paid' and i.total_cents > 0;
 
 insert into payment_allocations (payment_id, invoice_id, allocated_cents, created_at)
 select
