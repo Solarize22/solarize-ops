@@ -164,7 +164,6 @@ create table if not exists jobs (
   updated_at timestamptz not null default now(),
 
   constraint jobs_company_job_number_uniq unique (company_id, job_number),
-  constraint jobs_company_external_job_id_uniq unique nulls not distinct (company_id, external_job_id),
   constraint jobs_panel_count_nonnegative check (panel_count is null or panel_count >= 0),
   constraint jobs_watt_per_panel_nonnegative check (watt_per_panel is null or watt_per_panel >= 0),
   constraint jobs_system_size_nonnegative check (system_size_kw is null or system_size_kw >= 0)
@@ -175,6 +174,9 @@ create index if not exists jobs_rep_user_idx on jobs(rep_user_id);
 create index if not exists jobs_install_scheduled_idx on jobs(install_scheduled_at);
 create index if not exists jobs_install_completed_idx on jobs(install_completed_at);
 create index if not exists jobs_pto_granted_idx on jobs(pto_granted_at);
+create unique index if not exists jobs_company_external_job_id_uniq
+  on jobs(company_id, external_job_id)
+  where external_job_id is not null;
 
 create table if not exists job_crew_assignments (
   id uuid primary key default gen_random_uuid(),

@@ -133,6 +133,7 @@ export async function POST(req) {
         to_status,
         event_type,
         changed_at,
+        changed_by,
         related_invoice_id,
         related_payment_id,
         note
@@ -143,6 +144,7 @@ export async function POST(req) {
         ${jobStatus || "created"}::job_status,
         'payment_received'::status_event_type,
         now(),
+        ${ctx.appUser?.id || null},
         ${invoice.id},
         ${payments[0].id},
         ${`Recorded payment for ${invoice.invoice_number}`}

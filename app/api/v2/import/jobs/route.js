@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 
+const NON_INVOICE_TOKENS = new Set([
+  "paid",
+  "unpaid",
+  "complete",
+  "completed",
+  "yes",
+  "no",
+  "true",
+  "false",
+  "none",
+  "n/a",
+  "na",
+  "-"
+]);
+
 function mapStatus(status) {
   switch ((status || "").trim()) {
     case "Scheduled": return "scheduled";
@@ -17,6 +32,13 @@ function dollarsToCents(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
   return Math.round(amount * 100);
+}
+
+function normalizeInvoiceNumber(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  if (NON_INVOICE_TOKENS.has(normalized.toLowerCase())) return null;
+  return normalized;
 }
 
 async function findRepId(sql, companyId, repName) {
@@ -51,10 +73,11 @@ async function syncCrewAssignments(sql, jobId, companyId, crewNames = []) {
 }
 
 async function upsertInvoice(sql, { companyId, jobId, financer, invoiceType, invoiceNumber, amount, paid }) {
-  if (!invoiceNumber && !(Number(amount) > 0)) return;
+  const normalizedInvoiceNumber = normalizeInvoiceNumber(invoiceNumber);
+  if (!normalizedInvoiceNumber && !(Number(amount) > 0)) return;
 
   const totalCents = dollarsToCents(amount);
-  const number = invoiceNumber || `IMP-${invoiceType.toUpperCase()}-${jobId}`;
+  const number = normalizedInvoiceNumber || `IMP-${invoiceType.toUpperCase()}-${jobId}`;
   const existing = await sql`
     select id
     from invoices
@@ -128,98 +151,105 @@ async function upsertInvoice(sql, { companyId, jobId, financer, invoiceType, inv
 }
 
 async function createJob(sql, companyId, job) {
-  const repId = await findRepId(sql, companyId, job.rep);
-  const inserted = await sql`
-    insert into jobs (
-      company_id,
-      job_number,
-      customer_name,
-      customer_phone,
-      customer_email,
-      street_1,
-      city,
-      state,
-      postal_code,
-      contract_type,
-      financer,
-      contractor,
-      partner,
-      utility_company,
-      rep_user_id,
-      system_size_kw,
-      panel_count,
-      watt_per_panel,
-      inverter,
-      module,
-      battery,
-      roof_type,
-      contract_signed_at,
-      site_survey_at,
-      install_scheduled_at,
-      install_completed_at,
-      pto_granted_at,
-      current_status,
-      current_status_changed_at,
-      notes,
-      created_at,
-      updated_at
-    )
-    values (
-      ${companyId},
-      ${job.id},
-      ${job.customer || "Unknown Customer"},
-      ${job.phone || null},
-      ${job.email || null},
-      ${job.street || "Unknown Address"},
-      ${job.city || "Unknown City"},
-      ${job.state || "NA"},
-      ${job.zip || null},
-      ${job.deal || null},
-      ${job.financer || null},
-      ${job.contractor || null},
-      ${job.partner || null},
-      ${job.utilityCompany || null},
-      ${repId},
-      ${job.systemSize || null}::numeric,
-      ${job.panelCount || null}::integer,
-      ${job.watt || null}::integer,
-      ${job.inverter || null},
-      ${job.module || null},
-      ${!!job.battery},
-      ${job.roofType || null},
-      ${job.contractSigned || null}::date,
-      ${job.siteSurveyDate || null}::date,
-      ${job.installDate || null}::date,
-      ${["Install Complete", "Inspection Scheduled", "Inspection Passed", "Fully Paid / Closed"].includes(job.status) ? (job.installDate || null) : null}::date,
-      ${job.ptoDate || null}::date,
-      ${mapStatus(job.status)}::job_status,
-      now(),
-      ${job.notes || null},
-      now(),
-      now()
-    )
-    returning id
-  `;
+  await sql`begin`;
+  try {
+    const repId = await findRepId(sql, companyId, job.rep);
+    const inserted = await sql`
+      insert into jobs (
+        company_id,
+        job_number,
+        customer_name,
+        customer_phone,
+        customer_email,
+        street_1,
+        city,
+        state,
+        postal_code,
+        contract_type,
+        financer,
+        contractor,
+        partner,
+        utility_company,
+        rep_user_id,
+        system_size_kw,
+        panel_count,
+        watt_per_panel,
+        inverter,
+        module,
+        battery,
+        roof_type,
+        contract_signed_at,
+        site_survey_at,
+        install_scheduled_at,
+        install_completed_at,
+        pto_granted_at,
+        current_status,
+        current_status_changed_at,
+        notes,
+        created_at,
+        updated_at
+      )
+      values (
+        ${companyId},
+        ${job.id},
+        ${job.customer || "Unknown Customer"},
+        ${job.phone || null},
+        ${job.email || null},
+        ${job.street || "Unknown Address"},
+        ${job.city || "Unknown City"},
+        ${job.state || "NA"},
+        ${job.zip || null},
+        ${job.deal || null},
+        ${job.financer || null},
+        ${job.contractor || null},
+        ${job.partner || null},
+        ${job.utilityCompany || null},
+        ${repId},
+        ${job.systemSize || null}::numeric,
+        ${job.panelCount || null}::integer,
+        ${job.watt || null}::integer,
+        ${job.inverter || null},
+        ${job.module || null},
+        ${!!job.battery},
+        ${job.roofType || null},
+        ${job.contractSigned || null}::date,
+        ${job.siteSurveyDate || null}::date,
+        ${job.installDate || null}::date,
+        ${["Install Complete", "Inspection Scheduled", "Inspection Passed", "Fully Paid / Closed"].includes(job.status) ? (job.installDate || null) : null}::date,
+        ${job.ptoDate || null}::date,
+        ${mapStatus(job.status)}::job_status,
+        now(),
+        ${job.notes || null},
+        now(),
+        now()
+      )
+      returning id
+    `;
 
-  await syncCrewAssignments(sql, inserted[0].id, companyId, job.crew || []);
-  await upsertInvoice(sql, {
-    companyId,
-    jobId: inserted[0].id,
-    financer: job.financer,
-    invoiceType: "m1",
-    invoiceNumber: job.m1InvoiceNumber,
-    amount: job.m1Amount,
-    paid: !!job.m1Status,
-  });
-  await upsertInvoice(sql, {
-    companyId,
-    jobId: inserted[0].id,
-    financer: job.financer,
-    invoiceType: "m2",
-    invoiceNumber: job.m2InvoiceNumber,
-    amount: job.m2Amount,
-    paid: !!job.m2Status,
-  });
+    await syncCrewAssignments(sql, inserted[0].id, companyId, job.crew || []);
+    await upsertInvoice(sql, {
+      companyId,
+      jobId: inserted[0].id,
+      financer: job.financer,
+      invoiceType: "m1",
+      invoiceNumber: job.m1InvoiceNumber,
+      amount: job.m1Amount,
+      paid: !!job.m1Status,
+    });
+    await upsertInvoice(sql, {
+      companyId,
+      jobId: inserted[0].id,
+      financer: job.financer,
+      invoiceType: "m2",
+      invoiceNumber: job.m2InvoiceNumber,
+      amount: job.m2Amount,
+      paid: !!job.m2Status,
+    });
+    await sql`commit`;
+  } catch (error) {
+    await sql`rollback`;
+    throw error;
+  }
 }
 
 async function updateJob(sql, companyId, job) {

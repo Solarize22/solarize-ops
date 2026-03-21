@@ -443,6 +443,13 @@ export default function ImportPage() {
         });
         const data = await parseApiResponse(res, "Import failed");
         succeeded  = data.added ?? payload.length;
+        if (data.failed?.length) {
+          data.failed.forEach((item) => failed.push({
+            id: item.id,
+            customer: item.customer,
+            reason: item.reason || "Import failed",
+          }));
+        }
       } else {
         const res  = await fetch("/api/v2/import/jobs", {
           method:  "PUT",
@@ -451,6 +458,13 @@ export default function ImportPage() {
         });
         const data = await parseApiResponse(res, "Update failed");
         succeeded  = data.updated ?? payload.length;
+        if (data.failed?.length) {
+          data.failed.forEach((item) => failed.push({
+            id: item.id,
+            customer: item.customer,
+            reason: item.reason || "Update failed",
+          }));
+        }
         if (data.notFound?.length) {
           data.notFound.forEach(id => failed.push({ id, reason: "Not found during update" }));
         }
@@ -875,7 +889,7 @@ export default function ImportPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <a href="/jobs" className="btn btn-primary">View jobs â†’</a>
+            <a href="/jobs" className="btn btn-primary">View jobs</a>
             <button className="btn btn-outline" onClick={reset}>
               {mode === "import" ? "Import another file" : "Update another file"}
             </button>

@@ -3,476 +3,369 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { Search, ChevronRight, AlertTriangle, FileText } from "lucide-react";
 import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
+import { Search, CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
 
-const STATUSES = [
-  "created",
-  "scheduled",
-  "install_completed",
-  "inspection_scheduled",
-  "inspection_passed",
-  "inspection_failed",
-  "pto_submitted",
-  "pto_granted",
-  "m1_invoiced",
-  "m1_partially_paid",
-  "m1_paid",
-  "m2_invoiced",
-  "m2_partially_paid",
-  "paid_in_full",
-  "on_hold",
-  "cancelled",
-];
+const STATE_OPTIONS = ["All", "CT", "MA", "NH", "ME", "VT", "RI", "NY", "NJ"];
 
 const STATUS_META = {
-  created:               { bg: "#f1f5f9", color: "#334155", label: "Created" },
-  scheduled:             { bg: "#dbeafe", color: "#1e3a8a", label: "Scheduled" },
-  install_completed:     { bg: "#d8f3dc", color: "#1b4332", label: "Install Complete" },
-  inspection_scheduled:  { bg: "#dbeafe", color: "#1e3a8a", label: "Inspection Scheduled" },
-  inspection_passed:     { bg: "#d8f3dc", color: "#1b4332", label: "Inspection Passed" },
-  inspection_failed:     { bg: "#fee2e2", color: "#991b1b", label: "Inspection Failed" },
-  pto_submitted:         { bg: "#fef3c7", color: "#78350f", label: "PTO Submitted" },
-  pto_granted:           { bg: "#dcfce7", color: "#166534", label: "PTO Granted" },
-  m1_invoiced:           { bg: "#ede9fe", color: "#5b21b6", label: "M1 Invoiced" },
-  m1_partially_paid:     { bg: "#fef3c7", color: "#78350f", label: "M1 Partially Paid" },
-  m1_paid:               { bg: "#d8f3dc", color: "#1b4332", label: "M1 Paid" },
-  m2_invoiced:           { bg: "#ede9fe", color: "#5b21b6", label: "M2 Invoiced" },
-  m2_partially_paid:     { bg: "#fef3c7", color: "#78350f", label: "M2 Partially Paid" },
-  paid_in_full:          { bg: "#1a1917", color: "#ffffff", label: "Paid in Full" },
-  on_hold:               { bg: "#fee2e2", color: "#7f1d1d", label: "On Hold / Issue" },
-  cancelled:             { bg: "#e5e7eb", color: "#4b5563", label: "Cancelled" },
+  created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
+  scheduled: { label: "Scheduled", bg: "#dbeafe", color: "#1d4ed8" },
+  install_completed: { label: "Install complete", bg: "#dcfce7", color: "#166534" },
+  inspection_scheduled: { label: "Inspection scheduled", bg: "#e0f2fe", color: "#075985" },
+  inspection_passed: { label: "Inspection passed", bg: "#d1fae5", color: "#065f46" },
+  inspection_failed: { label: "Inspection failed", bg: "#fee2e2", color: "#991b1b" },
+  pto_submitted: { label: "PTO submitted", bg: "#fef3c7", color: "#92400e" },
+  pto_granted: { label: "PTO granted", bg: "#ede9fe", color: "#6d28d9" },
+  m1_invoiced: { label: "M1 invoiced", bg: "#ede9fe", color: "#6d28d9" },
+  m1_partially_paid: { label: "M1 partial", bg: "#fef3c7", color: "#92400e" },
+  m1_paid: { label: "M1 paid", bg: "#dcfce7", color: "#166534" },
+  m2_invoiced: { label: "M2 invoiced", bg: "#ede9fe", color: "#6d28d9" },
+  m2_partially_paid: { label: "M2 partial", bg: "#fef3c7", color: "#92400e" },
+  paid_in_full: { label: "Paid in full", bg: "#111827", color: "#ffffff" },
+  on_hold: { label: "On hold", bg: "#fee2e2", color: "#991b1b" },
+  cancelled: { label: "Cancelled", bg: "#e5e7eb", color: "#4b5563" },
 };
 
-const STAGE_META = {
-  created: "Pre-Install",
-  scheduled: "Installation",
-  install_completed: "Post-Install",
-  inspection_scheduled: "Inspections",
-  inspection_passed: "Closeout",
-  inspection_failed: "Issue",
-  pto_submitted: "PTO",
-  pto_granted: "Funding",
-  m1_invoiced: "Funding",
-  m1_partially_paid: "Funding",
-  m1_paid: "Funding",
-  m2_invoiced: "Final Billing",
-  m2_partially_paid: "Final Billing",
-  paid_in_full: "Completed",
-  on_hold: "Issue",
-  cancelled: "Cancelled",
-};
+const QUEUES = [
+  {
+    key: "scheduled",
+    title: "Scheduled installs",
+    description: "Jobs that need crew attention and install execution.",
+    empty: "No installs are queued here.",
+    icon: CalendarDays,
+    match: (job) => job.currentStatus === "scheduled",
+  },
+  {
+    key: "m1",
+    title: "Ready for M1",
+    description: "Install is done and billing should move immediately.",
+    empty: "Nothing is waiting on M1.",
+    icon: CircleDollarSign,
+    match: (job) => ["install_completed", "inspection_scheduled", "inspection_passed"].includes(job.currentStatus),
+  },
+  {
+    key: "inspection",
+    title: "Inspection queue",
+    description: "Needs scheduling, follow-through, or correction.",
+    empty: "No jobs are sitting in inspection.",
+    icon: ClipboardList,
+    match: (job) => ["inspection_scheduled", "inspection_failed"].includes(job.currentStatus),
+  },
+  {
+    key: "m2",
+    title: "Ready for M2",
+    description: "PTO is granted and final billing should go out.",
+    empty: "Nothing is waiting on M2.",
+    icon: CircleDollarSign,
+    match: (job) => ["pto_granted", "m1_paid"].includes(job.currentStatus),
+  },
+  {
+    key: "collections",
+    title: "Unpaid follow-up",
+    description: "Open balances that still need collections work.",
+    empty: "No unpaid jobs in this view.",
+    icon: CircleDollarSign,
+    match: (job) => (job.financialSummary?.outstandingCents || 0) > 0 && !["cancelled", "paid_in_full"].includes(job.currentStatus),
+  },
+  {
+    key: "issues",
+    title: "Problem jobs",
+    description: "Blocked jobs that need manual ops attention.",
+    empty: "No blocked jobs right now.",
+    icon: AlertTriangle,
+    match: (job) => ["inspection_failed", "on_hold"].includes(job.currentStatus),
+  },
+];
 
-const STAGE_COLORS = {
-  "Pre-Install": { bg: "#f8fafc", color: "#475569" },
-  "Installation": { bg: "#dbeafe", color: "#1e3a8a" },
-  "Post-Install": { bg: "#dcfce7", color: "#166534" },
-  "Inspections": { bg: "#fef3c7", color: "#92400e" },
-  "PTO": { bg: "#ede9fe", color: "#6d28d9" },
-  "Funding": { bg: "#e0f2fe", color: "#075985" },
-  "Final Billing": { bg: "#fde68a", color: "#854d0e" },
-  "Completed": { bg: "#1a1917", color: "#ffffff" },
-  "Issue": { bg: "#fee2e2", color: "#991b1b" },
-  "Cancelled": { bg: "#e5e7eb", color: "#4b5563" },
-};
+function statusMeta(status) {
+  return STATUS_META[status] || STATUS_META.created;
+}
 
-const STATES = ["All", "CT", "MA", "NH", "ME", "VT", "RI", "NY", "NJ"];
+function operationalDate(job) {
+  return job.installScheduledAt || job.installCompletedAt || job.ptoGrantedAt || job.currentStatusChangedAt;
+}
 
-function FilterSelect({ value, onChange, options, placeholder }) {
-  const active = value !== "All" && value !== "";
+function nextAction(job) {
+  switch (job.currentStatus) {
+    case "created":
+      return "Schedule install";
+    case "scheduled":
+      return "Confirm crew";
+    case "install_completed":
+      return "Create M1 invoice";
+    case "inspection_scheduled":
+      return "Track inspection";
+    case "inspection_failed":
+      return "Fix and reschedule";
+    case "inspection_passed":
+      return "Push PTO";
+    case "pto_submitted":
+      return "Watch utility PTO";
+    case "pto_granted":
+      return "Create M2 invoice";
+    case "m1_invoiced":
+    case "m1_partially_paid":
+      return "Collect M1";
+    case "m1_paid":
+      return "Move to final billing";
+    case "m2_invoiced":
+    case "m2_partially_paid":
+      return "Collect M2";
+    case "paid_in_full":
+      return "Closed";
+    case "on_hold":
+      return "Ops review";
+    default:
+      return "Review";
+  }
+}
+
+function queueSort(job) {
+  const parsed = operationalDate(job) ? new Date(operationalDate(job)).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function addressSummary(job) {
+  return [job.address?.city, job.address?.state].filter(Boolean).join(", ") || "-";
+}
+
+function QueuePanel({ queue, canSeeFinancials }) {
+  const Icon = queue.icon;
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      style={{
-        fontSize: 12,
-        padding: "5px 10px",
-        borderRadius: 20,
-        border: active ? "1.5px solid var(--text-primary)" : "0.5px solid var(--border)",
-        background: active ? "var(--text-primary)" : "var(--surface)",
-        color: active ? "white" : "var(--text-secondary)",
-        cursor: "pointer",
-        fontFamily: "var(--font-body)",
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      {options.map(o => (
-        <option key={o} value={o} style={{ background: "white", color: "#111" }}>
-          {o === "All" ? placeholder : o}
-        </option>
-      ))}
-    </select>
+    <div className="card" style={{ padding: "18px", border: "1px solid #eadfce", background: "#fffdf9" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: "#f5ecdf", color: "#6c4b2e", display: "grid", placeItems: "center", flexShrink: 0 }}>
+            <Icon size={16} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>{queue.title}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{queue.description}</div>
+          </div>
+        </div>
+        <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "#1f1a17", color: "white", display: "grid", placeItems: "center", fontWeight: 800 }}>
+          {queue.jobs.length}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {queue.jobs.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", padding: "8px 0" }}>{queue.empty}</div>
+        ) : queue.jobs.slice(0, 6).map((job) => {
+          const status = statusMeta(job.currentStatus);
+          return (
+            <Link key={job.id} href={`/jobs/${job.jobNumber}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <div style={{ border: "1px solid #efe5da", borderRadius: "var(--radius-md)", padding: "11px 12px", background: "white" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{job.customerName}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                      {job.jobNumber} | {addressSummary(job)}
+                    </div>
+                  </div>
+                  <span style={{ padding: "3px 8px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+                    {status.label}
+                  </span>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#5b4636" }}>
+                  Next: <strong>{nextAction(job)}</strong>
+                </div>
+                <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <span>{formatDate(operationalDate(job))}</span>
+                  <span>{canSeeFinancials ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : job.repName || "No rep"}</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
-}
-
-function statusLabel(status) {
-  return STATUS_META[status]?.label || status || "—";
-}
-
-function stageForJob(job) {
-  return STAGE_META[job.currentStatus] || "Pre-Install";
-}
-
-function bestDate(job) {
-  return Math.max(
-    ...[job.installCompletedAt, job.installScheduledAt, job.ptoGrantedAt]
-      .filter(Boolean)
-      .map(d => new Date(d).getTime())
-      .filter(n => !isNaN(n)),
-    0
-  );
-}
-
-function displayDate(job) {
-  return formatDate(job.installCompletedAt || job.installScheduledAt || job.ptoGrantedAt || job.currentStatusChangedAt);
 }
 
 export default function JobsPage() {
   const { canSeeFinancials, loading: roleLoading } = useUserRole();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [period, setPeriod] = useState("All time");
+  const [stateFilter, setStateFilter] = useState("All");
+  const [showClosed, setShowClosed] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     fetch("/api/v2/jobs")
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setJobs(Array.isArray(data) ? data : []))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setJobs(Array.isArray(data) ? data : []))
       .catch(() => setJobs([]))
       .finally(() => setLoading(false));
   }, []);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [stateFilter, setStateFilter] = useState("All");
-  const [crewFilter, setCrewFilter] = useState("All");
-  const [repFilter, setRepFilter] = useState("All");
-  const [period, setPeriod] = useState("All time");
-  const [activeFilter, setActiveFilter] = useState("Active");
-  const [stageFilter, setStageFilter] = useState("All");
-  const [sort, setSort] = useState({ col: "date", dir: "desc" });
-
-  const crewOptions = useMemo(() => {
-    const all = new Set();
-    jobs.forEach(j => (j.crewNames || []).forEach(c => c && all.add(c.trim())));
-    return ["All", ...Array.from(all).sort()];
-  }, [jobs]);
-
-  const repOptions = useMemo(() => {
-    const all = new Set();
-    jobs.forEach(j => j.repName && all.add(j.repName.trim()));
-    return ["All", ...Array.from(all).sort()];
-  }, [jobs]);
-
-  const stageOptions = useMemo(() => {
-    return ["All", ...Array.from(new Set(jobs.map(stageForJob))).sort()];
-  }, [jobs]);
-
-  const filtered = useMemo(() => {
-    const byPeriod = filterByPeriod(
-      jobs.map(j => ({ ...j, createdAt: j.installScheduledAt || j.installCompletedAt || j.currentStatusChangedAt })),
+  const filteredJobs = useMemo(() => {
+    const windowed = filterByPeriod(
+      jobs.map((job) => ({ ...job, createdAt: operationalDate(job) })),
       period
     );
 
-    return byPeriod.filter((j) => {
-      const matchSearch = !search.trim() || search.trim().toLowerCase().split(/\s+/).every(word => {
-        const haystack = [
-          j.customerName,
-          j.jobNumber,
-          j.address?.street1,
-          j.address?.city,
-          j.address?.state,
-          j.repName,
-          ...(j.crewNames || []),
-        ].filter(Boolean).join(" ").toLowerCase();
-        return haystack.includes(word);
-      });
+    return windowed.filter((job) => {
+      const q = search.trim().toLowerCase();
+      const matchesSearch = !q || [
+        job.customerName,
+        job.jobNumber,
+        job.address?.street1,
+        job.address?.city,
+        job.address?.state,
+        job.repName,
+        ...(job.crewNames || []),
+      ].filter(Boolean).join(" ").toLowerCase().includes(q);
 
-      const matchStatus = statusFilter === "All" || j.currentStatus === statusFilter;
-      const matchStage = stageFilter === "All" || stageForJob(j) === stageFilter;
-      const matchState = stateFilter === "All" || j.address?.state === stateFilter;
-      const matchCrew = crewFilter === "All" || (j.crewNames || []).includes(crewFilter);
-      const matchRep = repFilter === "All" || j.repName === repFilter;
-      const isActive = j.currentStatus !== "paid_in_full" && j.currentStatus !== "cancelled";
-      const matchActive =
-        activeFilter === "All" ||
-        (activeFilter === "Active" && isActive) ||
-        (activeFilter === "Inactive" && !isActive);
-
-      return matchSearch && matchStatus && matchStage && matchState && matchCrew && matchRep && matchActive;
+      const matchesState = stateFilter === "All" || job.address?.state === stateFilter;
+      const isClosed = ["paid_in_full", "cancelled"].includes(job.currentStatus);
+      return matchesSearch && matchesState && (showClosed || !isClosed);
     });
-  }, [jobs, search, statusFilter, stageFilter, stateFilter, crewFilter, repFilter, period, activeFilter]);
+  }, [jobs, period, search, stateFilter, showClosed]);
 
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    const { col, dir } = sort;
-    arr.sort((a, b) => {
-      let av;
-      let bv;
-      if (col === "customer") { av = a.customerName || ""; bv = b.customerName || ""; }
-      else if (col === "job") { av = a.jobNumber || ""; bv = b.jobNumber || ""; }
-      else if (col === "status") { av = statusLabel(a.currentStatus); bv = statusLabel(b.currentStatus); }
-      else if (col === "stage") { av = stageForJob(a); bv = stageForJob(b); }
-      else if (col === "location") { av = `${a.address?.state || ""}${a.address?.city || ""}`; bv = `${b.address?.state || ""}${b.address?.city || ""}`; }
-      else if (col === "system") {
-        av = parseFloat(a.systemSizeKw) || 0;
-        bv = parseFloat(b.systemSizeKw) || 0;
-        return dir === "asc" ? av - bv : bv - av;
-      } else if (col === "crew") { av = (a.crewNames || []).join(""); bv = (b.crewNames || []).join(""); }
-      else if (col === "rep") { av = a.repName || ""; bv = b.repName || ""; }
-      else if (col === "date") {
-        av = bestDate(a);
-        bv = bestDate(b);
-        return dir === "asc" ? av - bv : bv - av;
-      } else if (col === "outstanding") {
-        av = a.financialSummary?.outstandingCents || 0;
-        bv = b.financialSummary?.outstandingCents || 0;
-        return dir === "asc" ? av - bv : bv - av;
-      } else {
-        av = ""; bv = "";
-      }
-      return dir === "asc" ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
-    });
-    return arr;
-  }, [filtered, sort]);
+  const queueData = useMemo(() => {
+    return QUEUES.map((queue) => ({
+      ...queue,
+      jobs: filteredJobs.filter(queue.match).sort((a, b) => queueSort(a) - queueSort(b)),
+    }));
+  }, [filteredJobs]);
 
-  function toggleSort(col) {
-    setSort(prev => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "desc" });
-  }
-
-  const hasFilters = search || statusFilter !== "All" || stageFilter !== "All" || stateFilter !== "All" || crewFilter !== "All" || repFilter !== "All";
-
-  function clearFilters() {
-    setSearch("");
-    setStatusFilter("All");
-    setStageFilter("All");
-    setStateFilter("All");
-    setCrewFilter("All");
-    setRepFilter("All");
-  }
+  const worklist = useMemo(() => {
+    return [...filteredJobs].sort((a, b) => queueSort(a) - queueSort(b)).slice(0, 100);
+  }, [filteredJobs]);
 
   return (
     <AppShell>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1>Jobs</h1>
-          <p>Normalized pipeline view backed by Neon relational tables.</p>
+          <h1>Daily action board</h1>
+          <p>Use the queues below to work installs, invoices, PTO, collections, and problem jobs.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <PeriodFilter value={period} onChange={setPeriod} />
           <Link href="/invoices">
             <button className="btn btn-outline" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <FileText size={13} /> Invoices
+              <CircleDollarSign size={14} /> Billing
             </button>
           </Link>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        {["Active", "Inactive", "All"].map(f => {
-          const count = f === "All"
-            ? jobs.length
-            : jobs.filter(j => {
-              const active = j.currentStatus !== "paid_in_full" && j.currentStatus !== "cancelled";
-              return f === "Active" ? active : !active;
-            }).length;
-          return (
-            <button
-              key={f}
-              onClick={() => setActiveFilter(f)}
-              style={{
-                padding: "5px 14px",
-                borderRadius: 20,
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: "var(--font-body)",
-                border: activeFilter === f ? "none" : "0.5px solid var(--border)",
-                background: activeFilter === f ? (f === "Inactive" ? "#6b7280" : "var(--text-primary)") : "var(--surface)",
-                color: activeFilter === f ? "white" : "var(--text-secondary)",
-                fontWeight: activeFilter === f ? 600 : 400,
-              }}
-            >
-              {f} <span style={{ opacity: 0.7 }}>({count})</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        <button
-          onClick={() => setStatusFilter("All")}
-          style={{
-            padding: "5px 12px",
-            borderRadius: 20,
-            border: "0.5px solid var(--border)",
-            background: statusFilter === "All" ? "var(--text-primary)" : "var(--surface)",
-            color: statusFilter === "All" ? "white" : "var(--text-secondary)",
-            fontSize: 12,
-            cursor: "pointer",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          All ({jobs.length})
-        </button>
-        {STATUSES.filter(status => jobs.some(job => job.currentStatus === status)).map(status => {
-          const meta = STATUS_META[status];
-          const active = statusFilter === status;
-          return (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(active ? "All" : status)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: "var(--font-body)",
-                fontWeight: active ? 600 : 400,
-                background: active ? meta.color : meta.bg,
-                color: active ? "white" : meta.color,
-                border: `0.5px solid ${meta.color}44`,
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-              }}
-            >
-              {status === "on_hold" && <AlertTriangle size={10} />}
-              {meta.label} ({jobs.filter(job => job.currentStatus === status).length})
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 320 }}>
-          <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+        <div style={{ position: "relative", flex: "1 1 320px", maxWidth: 420 }}>
+          <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search customer, address, job #, rep..."
-            style={{ width: "100%", paddingLeft: 30, paddingRight: 10 }}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customer, job number, address, rep, crew..."
+            style={{ width: "100%", paddingLeft: 34, paddingRight: 12 }}
           />
         </div>
 
-        <FilterSelect value={stateFilter} onChange={setStateFilter} options={STATES} placeholder="All states" />
-        <FilterSelect value={stageFilter} onChange={setStageFilter} options={stageOptions} placeholder="All stages" />
-        {crewOptions.length > 2 && <FilterSelect value={crewFilter} onChange={setCrewFilter} options={crewOptions} placeholder="All crew" />}
-        {repOptions.length > 2 && <FilterSelect value={repFilter} onChange={setRepFilter} options={repOptions} placeholder="All reps" />}
+        <select
+          value={stateFilter}
+          onChange={(e) => setStateFilter(e.target.value)}
+          style={{ fontSize: 13, padding: "9px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface)" }}
+        >
+          {STATE_OPTIONS.map((state) => (
+            <option key={state} value={state}>
+              {state === "All" ? "All states" : state}
+            </option>
+          ))}
+        </select>
 
-        {hasFilters && (
-          <button className="btn btn-ghost" onClick={clearFilters} style={{ fontSize: 12 }}>
-            Clear
-          </button>
-        )}
+        <button
+          className={showClosed ? "btn btn-primary" : "btn btn-outline"}
+          onClick={() => setShowClosed((value) => !value)}
+        >
+          {showClosed ? "Showing closed jobs" : "Hide closed jobs"}
+        </button>
 
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {loading || roleLoading ? "Loading..." : `${filtered.length} job${filtered.length !== 1 ? "s" : ""}`}
-        </span>
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
+          {loading || roleLoading ? "Loading..." : `${filteredJobs.length} jobs in play`}
+        </div>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
+        {queueData.map((queue) => (
+          <QueuePanel key={queue.key} queue={queue} canSeeFinancials={canSeeFinancials} />
+        ))}
+      </div>
+
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Master worklist</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Secondary scan for the full active pipeline after you clear the queue cards above.</div>
+        </div>
+
         {loading ? (
-          <div className="empty-state" style={{ padding: 40 }}>Loading jobs...</div>
-        ) : sorted.length === 0 ? (
-          <div className="empty-state" style={{ padding: 40 }}>No jobs match your filters.</div>
+          <div className="empty-state" style={{ padding: 34 }}>Loading jobs...</div>
+        ) : worklist.length === 0 ? (
+          <div className="empty-state" style={{ padding: 34 }}>No jobs match the current action filters.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
-                  {[
-                    ["stage", "Stage"],
-                    ["customer", "Customer"],
-                    ["job", "Job #"],
-                    ["status", "Status"],
-                    ["location", "Location"],
-                    ["system", "System"],
-                    ["crew", "Crew"],
-                    ["rep", "Rep"],
-                    ...(canSeeFinancials ? [["outstanding", "Outstanding"]] : []),
-                    ["date", "Date"],
-                  ].map(([key, label]) => (
+                  {["Customer", "Job #", "Town", "Status", "Next step", "Date", "Outstanding", ""].map((label) => (
                     <th
-                      key={key}
-                      onClick={() => toggleSort(key)}
+                      key={label}
                       style={{
-                        padding: "9px 12px",
+                        padding: "10px 12px",
                         textAlign: "left",
-                        fontWeight: 600,
                         fontSize: 11,
-                        color: "var(--text-secondary)",
-                        letterSpacing: ".04em",
                         textTransform: "uppercase",
+                        letterSpacing: ".05em",
+                        color: "var(--text-secondary)",
                         whiteSpace: "nowrap",
-                        cursor: "pointer",
                       }}
                     >
-                      {label}{sort.col === key ? ` ${sort.dir === "asc" ? "↑" : "↓"}` : ""}
+                      {label}
                     </th>
                   ))}
-                  <th style={{ width: 32 }} />
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((job, i) => {
-                  const status = STATUS_META[job.currentStatus] || STATUS_META.created;
-                  const stage = stageForJob(job);
-                  const stageStyle = STAGE_COLORS[stage] || STAGE_COLORS["Pre-Install"];
-                  const isIssue = job.currentStatus === "on_hold" || job.currentStatus === "inspection_failed";
+                {worklist.map((job, index) => {
+                  const status = statusMeta(job.currentStatus);
+                  const issue = ["inspection_failed", "on_hold"].includes(job.currentStatus);
                   return (
                     <tr
                       key={job.id}
                       onClick={() => { window.location.href = `/jobs/${job.jobNumber}`; }}
                       style={{
-                        borderBottom: "0.5px solid var(--border)",
-                        background: isIssue ? "#fff8f8" : i % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                         cursor: "pointer",
+                        borderBottom: "1px solid var(--border)",
+                        background: issue ? "#fff7f7" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                       }}
                     >
-                      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: stageStyle.bg, color: stageStyle.color }}>
-                          {stage}
-                        </span>
-                      </td>
-                      <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {isIssue && <AlertTriangle size={11} style={{ color: "#dc2626", flexShrink: 0 }} />}
-                          {job.customerName}
-                          {job.battery && <span className="badge badge-blue" style={{ fontSize: 9 }}>Battery</span>}
+                      <td style={{ padding: "12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {issue && <AlertTriangle size={13} style={{ color: "#dc2626", flexShrink: 0 }} />}
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{job.customerName}</div>
+                            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{job.repName || "No rep assigned"}</div>
+                          </div>
                         </div>
                       </td>
-                      <td style={{ padding: "10px 12px" }}>
-                        <span className="mono badge badge-slate" style={{ fontSize: 10 }}>{job.jobNumber}</span>
-                      </td>
-                      <td style={{ padding: "10px 12px" }}>
-                        <span style={{ padding: "3px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500, background: status.bg, color: status.color }}>
+                      <td style={{ padding: "12px" }}><span className="mono badge badge-slate">{job.jobNumber}</span></td>
+                      <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{addressSummary(job)}</td>
+                      <td style={{ padding: "12px" }}>
+                        <span style={{ padding: "4px 9px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700 }}>
                           {status.label}
                         </span>
                       </td>
-                      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                        <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{job.address?.state}{job.address?.city ? ` · ${job.address.city}` : ""}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{job.address?.street1 || "—"}</div>
+                      <td style={{ padding: "12px", fontWeight: 600, color: "#5b4636" }}>{nextAction(job)}</td>
+                      <td style={{ padding: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{formatDate(operationalDate(job))}</td>
+                      <td style={{ padding: "12px", whiteSpace: "nowrap", fontWeight: 700 }}>
+                        {canSeeFinancials ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : ((job.financialSummary?.outstandingCents || 0) > 0 ? "Open" : "Clear")}
                       </td>
-                      <td style={{ padding: "10px 12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                        {job.panelCount ? `${job.panelCount} panels` : "—"}
-                        {job.systemSizeKw ? <span style={{ color: "var(--text-tertiary)" }}> · {job.systemSizeKw} kW</span> : ""}
-                      </td>
-                      <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
-                        {job.crewNames?.length ? job.crewNames.join(", ") : "—"}
-                      </td>
-                      <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{job.repName || "—"}</td>
-                      {canSeeFinancials && (
-                        <td style={{ padding: "10px 12px", whiteSpace: "nowrap", fontWeight: 600 }}>
-                          {formatCurrency((job.financialSummary?.outstandingCents || 0) / 100)}
-                        </td>
-                      )}
-                      <td style={{ padding: "10px 12px", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
-                        {displayDate(job)}
-                      </td>
-                      <td style={{ padding: "10px 12px" }}>
-                        <ChevronRight size={14} style={{ color: "var(--text-tertiary)" }} />
-                      </td>
+                      <td style={{ padding: "12px" }}><ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} /></td>
                     </tr>
                   );
                 })}

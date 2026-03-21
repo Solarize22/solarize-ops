@@ -77,6 +77,7 @@ export async function POST(req, { params }) {
         to_status,
         event_type,
         changed_at,
+        changed_by,
         note
       )
       values (
@@ -85,6 +86,7 @@ export async function POST(req, { params }) {
         ${nextStatus}::job_status,
         'status_changed'::status_event_type,
         now(),
+        ${ctx.appUser?.id || null},
         ${note}
       )
     `;

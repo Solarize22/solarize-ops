@@ -14,7 +14,7 @@ import {
   Shield,
   LogOut,
 } from "lucide-react";
-import { UserRoleProvider, useUserRole } from "@/lib/useUserRole";
+import { useUserRole } from "@/lib/useUserRole";
 import { useClerk } from "@clerk/nextjs";
 
 const ALL_NAV = [
@@ -194,9 +194,5 @@ function SidebarContent({ children }) {
 }
 
 export default function AppShell({ children }) {
-  return (
-    <UserRoleProvider>
-      <SidebarContent>{children}</SidebarContent>
-    </UserRoleProvider>
-  );
+  return <SidebarContent>{children}</SidebarContent>;
 }

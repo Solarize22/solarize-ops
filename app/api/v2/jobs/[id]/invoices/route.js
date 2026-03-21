@@ -175,6 +175,7 @@ export async function POST(req, { params }) {
         to_status,
         event_type,
         changed_at,
+        changed_by,
         related_invoice_id,
         note
       )
@@ -184,6 +185,7 @@ export async function POST(req, { params }) {
         ${targetStatus || "created"}::job_status,
         'invoice_created'::status_event_type,
         now(),
+        ${ctx.appUser?.id || null},
         ${inserted[0].id},
         ${`Created ${invoiceType.toUpperCase()} invoice ${invoiceNumber}`}
       )

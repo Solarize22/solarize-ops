@@ -124,36 +124,52 @@ const FIELD_MAP = {
 };
 
 function normalizePayload(body) {
+  const cleanText = (value) => {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text === "" ? null : text;
+  };
+
+  const cleanNumber = (value) => {
+    const text = cleanText(value);
+    return text === null ? null : text;
+  };
+
+  const cleanDate = (value) => {
+    const text = cleanText(value);
+    return text === null ? null : text;
+  };
+
   const address = body?.address || {};
   return {
-    customerName: body?.customerName,
-    customerPhone: body?.customerPhone,
-    customerEmail: body?.customerEmail,
-    street1: address.street1,
-    street2: address.street2,
-    city: address.city,
-    state: address.state,
-    postalCode: address.postalCode,
-    county: address.county,
-    contractType: body?.contractType,
-    financer: body?.financer,
-    contractor: body?.contractor,
-    partner: body?.partner,
-    utilityCompany: body?.utilityCompany,
-    systemSizeKw: body?.systemSizeKw,
-    panelCount: body?.panelCount,
-    wattPerPanel: body?.wattPerPanel,
-    inverter: body?.inverter,
-    module: body?.module,
+    customerName: cleanText(body?.customerName),
+    customerPhone: cleanText(body?.customerPhone),
+    customerEmail: cleanText(body?.customerEmail),
+    street1: cleanText(address.street1),
+    street2: cleanText(address.street2),
+    city: cleanText(address.city),
+    state: cleanText(address.state),
+    postalCode: cleanText(address.postalCode),
+    county: cleanText(address.county),
+    contractType: cleanText(body?.contractType),
+    financer: cleanText(body?.financer),
+    contractor: cleanText(body?.contractor),
+    partner: cleanText(body?.partner),
+    utilityCompany: cleanText(body?.utilityCompany),
+    systemSizeKw: cleanNumber(body?.systemSizeKw),
+    panelCount: cleanNumber(body?.panelCount),
+    wattPerPanel: cleanNumber(body?.wattPerPanel),
+    inverter: cleanText(body?.inverter),
+    module: cleanText(body?.module),
     battery: body?.battery,
-    roofType: body?.roofType,
-    contractSignedAt: body?.contractSignedAt,
-    siteSurveyAt: body?.siteSurveyAt,
-    installScheduledAt: body?.installScheduledAt,
-    installCompletedAt: body?.installCompletedAt,
-    ptoSubmittedAt: body?.ptoSubmittedAt,
-    ptoGrantedAt: body?.ptoGrantedAt,
-    notes: body?.notes,
+    roofType: cleanText(body?.roofType),
+    contractSignedAt: cleanDate(body?.contractSignedAt),
+    siteSurveyAt: cleanDate(body?.siteSurveyAt),
+    installScheduledAt: cleanDate(body?.installScheduledAt),
+    installCompletedAt: cleanDate(body?.installCompletedAt),
+    ptoSubmittedAt: cleanDate(body?.ptoSubmittedAt),
+    ptoGrantedAt: cleanDate(body?.ptoGrantedAt),
+    notes: cleanText(body?.notes),
   };
 }
 
@@ -217,6 +233,7 @@ export async function PATCH(req, { params }) {
         to_status,
         event_type,
         changed_at,
+        changed_by,
         note
       )
       values (
@@ -225,6 +242,7 @@ export async function PATCH(req, { params }) {
         ${rows[0].current_status}::job_status,
         'note'::status_event_type,
         now(),
+        ${ctx.appUser?.id || null},
         'Updated core job fields via normalized API'
       )
     `;
