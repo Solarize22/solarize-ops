@@ -56,7 +56,7 @@ export async function GET(req, { params }) {
         county: row.county,
       },
       contractType: row.contract_type,
-      financer: row.financer,
+      financer: showFinancials ? row.financer : null,
       contractor: row.contractor,
       partner: row.partner,
       utilityCompany: row.utility_company,

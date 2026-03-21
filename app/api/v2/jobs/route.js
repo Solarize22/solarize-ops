@@ -86,7 +86,7 @@ export async function GET() {
         postalCode: row.postal_code,
       },
       contractType: row.contract_type,
-      financer: row.financer,
+      financer: showFinancials ? row.financer : null,
       contractor: row.contractor,
       partner: row.partner,
       utilityCompany: row.utility_company,

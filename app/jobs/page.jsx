@@ -135,10 +135,10 @@ function addressSummary(job) {
 function QueuePanel({ queue, canSeeFinancials }) {
   const Icon = queue.icon;
   return (
-    <div className="card" style={{ padding: "18px", border: "1px solid #eadfce", background: "#fffdf9" }}>
+    <div className="card" style={{ padding: "18px", border: "1px solid var(--border)", background: "var(--surface)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: "#f5ecdf", color: "#6c4b2e", display: "grid", placeItems: "center", flexShrink: 0 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: "var(--surface-2)", color: "var(--text-secondary)", display: "grid", placeItems: "center", flexShrink: 0 }}>
             <Icon size={16} />
           </div>
           <div>
@@ -146,7 +146,7 @@ function QueuePanel({ queue, canSeeFinancials }) {
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{queue.description}</div>
           </div>
         </div>
-        <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "#1f1a17", color: "white", display: "grid", placeItems: "center", fontWeight: 800 }}>
+        <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
           {queue.jobs.length}
         </div>
       </div>
@@ -158,7 +158,7 @@ function QueuePanel({ queue, canSeeFinancials }) {
           const status = statusMeta(job.currentStatus);
           return (
             <Link key={job.id} href={`/jobs/${job.jobNumber}`} style={{ textDecoration: "none", color: "inherit" }}>
-              <div style={{ border: "1px solid #efe5da", borderRadius: "var(--radius-md)", padding: "11px 12px", background: "white" }}>
+              <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "11px 12px", background: "var(--surface-soft)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>{job.customerName}</div>
@@ -170,7 +170,7 @@ function QueuePanel({ queue, canSeeFinancials }) {
                     {status.label}
                   </span>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: "#5b4636" }}>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-secondary)" }}>
                   Next: <strong>{nextAction(job)}</strong>
                 </div>
                 <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-secondary)" }}>
@@ -191,7 +191,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [period, setPeriod] = useState("All time");
+  const [period, setPeriod] = useState("This week");
   const [stateFilter, setStateFilter] = useState("All");
   const [showClosed, setShowClosed] = useState(false);
 
@@ -229,11 +229,15 @@ export default function JobsPage() {
   }, [jobs, period, search, stateFilter, showClosed]);
 
   const queueData = useMemo(() => {
-    return QUEUES.map((queue) => ({
+    const visibleQueues = canSeeFinancials
+      ? QUEUES
+      : QUEUES.filter((queue) => !["m1", "m2", "collections"].includes(queue.key));
+
+    return visibleQueues.map((queue) => ({
       ...queue,
       jobs: filteredJobs.filter(queue.match).sort((a, b) => queueSort(a) - queueSort(b)),
     }));
-  }, [filteredJobs]);
+  }, [filteredJobs, canSeeFinancials]);
 
   const worklist = useMemo(() => {
     return [...filteredJobs].sort((a, b) => queueSort(a) - queueSort(b)).slice(0, 100);
@@ -248,11 +252,13 @@ export default function JobsPage() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <PeriodFilter value={period} onChange={setPeriod} />
-          <Link href="/invoices">
-            <button className="btn btn-outline" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <CircleDollarSign size={14} /> Billing
-            </button>
-          </Link>
+          {canSeeFinancials ? (
+            <Link href="/invoices">
+              <button className="btn btn-outline" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <CircleDollarSign size={14} /> Billing
+              </button>
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -312,7 +318,10 @@ export default function JobsPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
-                  {["Customer", "Job #", "Town", "Status", "Next step", "Date", "Outstanding", ""].map((label) => (
+                  {(canSeeFinancials
+                    ? ["Customer", "Job #", "Town", "Status", "Next step", "Date", "Outstanding", ""]
+                    : ["Customer", "Job #", "Town", "Status", "Next step", "Date", ""]
+                  ).map((label) => (
                     <th
                       key={label}
                       style={{
@@ -341,7 +350,7 @@ export default function JobsPage() {
                       style={{
                         cursor: "pointer",
                         borderBottom: "1px solid var(--border)",
-                        background: issue ? "#fff7f7" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
+                        background: issue ? "var(--red-bg)" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                       }}
                     >
                       <td style={{ padding: "12px" }}>
@@ -360,11 +369,13 @@ export default function JobsPage() {
                           {status.label}
                         </span>
                       </td>
-                      <td style={{ padding: "12px", fontWeight: 600, color: "#5b4636" }}>{nextAction(job)}</td>
+                      <td style={{ padding: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{nextAction(job)}</td>
                       <td style={{ padding: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{formatDate(operationalDate(job))}</td>
-                      <td style={{ padding: "12px", whiteSpace: "nowrap", fontWeight: 700 }}>
-                        {canSeeFinancials ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : ((job.financialSummary?.outstandingCents || 0) > 0 ? "Open" : "Clear")}
-                      </td>
+                      {canSeeFinancials ? (
+                        <td style={{ padding: "12px", whiteSpace: "nowrap", fontWeight: 700 }}>
+                          {formatCurrency((job.financialSummary?.outstandingCents || 0) / 100)}
+                        </td>
+                      ) : null}
                       <td style={{ padding: "12px" }}><ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} /></td>
                     </tr>
                   );

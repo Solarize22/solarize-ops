@@ -83,7 +83,7 @@ function operationalDate(job) {
 
 function MilestoneCard({ label, value, strong = false }) {
   return (
-    <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: strong ? "#f5ecdf" : "var(--surface-2)", border: strong ? "1px solid #e9d7bf" : "1px solid var(--border)" }}>
+    <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: strong ? "var(--amber-bg)" : "var(--surface-2)", border: strong ? "1px solid var(--amber)" : "1px solid var(--border)" }}>
       <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700 }}>{label}</div>
       <div style={{ marginTop: 6, fontSize: 14, fontWeight: 700 }}>{value}</div>
     </div>
@@ -118,7 +118,7 @@ function ActionPanel({ title, icon: Icon, children }) {
   return (
     <div className="card" style={{ padding: "18px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <Icon size={15} style={{ color: "#6c4b2e" }} />
+        <Icon size={15} style={{ color: "var(--amber)" }} />
         <div style={{ fontWeight: 800, fontSize: 14 }}>{title}</div>
       </div>
       {children}
@@ -143,7 +143,7 @@ function FormField({ label, children, span = 1, hint = "" }) {
 function SectionHeading({ title, description = "" }) {
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", color: "#6c4b2e" }}>{title}</div>
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--amber)" }}>{title}</div>
       {description ? <div style={{ marginTop: 3, fontSize: 12, color: "var(--text-secondary)" }}>{description}</div> : null}
     </div>
   );
@@ -266,7 +266,7 @@ export default function JobDetailPage() {
     if (canManageOps && job.currentStatus === "scheduled") {
       actions.push({ label: "Mark install complete", kind: "status", toStatus: "install_completed", note: "Install completed from command center", date: today });
     }
-    if (["install_completed", "inspection_scheduled", "inspection_passed"].includes(job.currentStatus)) {
+    if (isOwner && ["install_completed", "inspection_scheduled", "inspection_passed"].includes(job.currentStatus)) {
       actions.push({ label: "Prepare M1 invoice", kind: "invoice", invoiceType: "M1" });
     }
     if (canManageOps && job.currentStatus === "install_completed") {
@@ -278,7 +278,7 @@ export default function JobDetailPage() {
     if (canManageOps && ["inspection_passed", "pto_submitted"].includes(job.currentStatus)) {
       actions.push({ label: "Grant PTO", kind: "status", toStatus: "pto_granted", note: "PTO granted from command center", date: today });
     }
-    if (["pto_granted", "m1_paid"].includes(job.currentStatus)) {
+    if (isOwner && ["pto_granted", "m1_paid"].includes(job.currentStatus)) {
       actions.push({ label: "Prepare M2 invoice", kind: "invoice", invoiceType: "M2" });
     }
     if (isOwner && invoices.some((invoice) => (invoice.balanceCents || 0) > 0)) {
@@ -423,7 +423,7 @@ export default function JobDetailPage() {
           <ArrowLeft size={13} /> Back to jobs
         </Link>
 
-        <div className="card" style={{ padding: "22px 24px", background: "linear-gradient(135deg, #fff9f1 0%, #f8f2e9 100%)", border: "1px solid #eadfce" }}>
+        <div className="card" style={{ padding: "22px 24px", background: "linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
@@ -431,10 +431,10 @@ export default function JobDetailPage() {
                 <span className="mono badge badge-slate">{job.jobNumber}</span>
                 <span style={{ padding: "5px 10px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 12, fontWeight: 800 }}>{status.label}</span>
               </div>
-              <div style={{ fontSize: 13, color: "#6c5a49", marginBottom: 8 }}>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
                 {[job.address?.street1, job.address?.city, job.address?.state, job.address?.postalCode].filter(Boolean).join(", ")}
               </div>
-              <div style={{ fontSize: 14, color: "#4f3d2f" }}>Next action: <strong>{nextAction(job)}</strong></div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>Next action: <strong style={{ color: "var(--text-primary)" }}>{nextAction(job)}</strong></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(120px, 1fr))", gap: 10, minWidth: 360 }}>
               <MilestoneCard label="Current stage" value={status.label} strong />
@@ -445,7 +445,7 @@ export default function JobDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10, marginTop: 18 }}>
             {TIMELINE.map((item, index) => {
               const active = index <= timelineIndex;
-              return <div key={item.key} style={{ padding: "10px 12px", borderRadius: "var(--radius-md)", background: active ? "#1f1a17" : "rgba(255,255,255,.7)", color: active ? "#fff" : "#6b7280", border: active ? "none" : "1px solid #eadfce", fontSize: 12, fontWeight: 700, textAlign: "center" }}>{item.label}</div>;
+              return <div key={item.key} style={{ padding: "10px 12px", borderRadius: "var(--radius-md)", background: active ? "var(--text-primary)" : "var(--surface-soft)", color: active ? "var(--accent-text)" : "var(--text-secondary)", border: active ? "none" : "1px solid var(--border)", fontSize: 12, fontWeight: 700, textAlign: "center" }}>{item.label}</div>;
             })}
           </div>
         </div>
@@ -639,6 +639,7 @@ export default function JobDetailPage() {
             ) : <EmptyState text="No inspection records yet." />}
           </ActionPanel>
 
+          {isOwner ? (
           <div ref={billingRef}>
           <ActionPanel title="Financials" icon={CircleDollarSign}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginBottom: 14 }}>
@@ -647,7 +648,7 @@ export default function JobDetailPage() {
               <MilestoneCard label="Outstanding" value={formatCurrency(invoiceSummary.outstanding / 100)} strong />
             </div>
             {highlightedInvoice ? (
-              <div style={{ padding: "12px 14px", border: "1px solid #eadfce", borderRadius: "var(--radius-md)", background: "#fffdf9", marginBottom: 14 }}>
+              <div style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-soft)", marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 6 }}>
                   <div style={{ fontWeight: 800 }}>{highlightedInvoice.invoiceNumber}</div>
                   <span className="mono badge badge-slate">{highlightedInvoice.invoiceType}</span>
@@ -694,6 +695,7 @@ export default function JobDetailPage() {
             ) : null}
           </ActionPanel>
           </div>
+          ) : null}
 
           <ActionPanel title="Activity log" icon={CalendarDays}>
             <SectionHeading title="Audit trail" description="Every tracked change with timestamps and who performed the update when available." />
@@ -725,9 +727,9 @@ export default function JobDetailPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <ActionPanel title="Immediate actions" icon={ShieldCheck}>
-            <div style={{ fontSize: 13, color: "#5b4636", marginBottom: 12 }}>This panel should answer one question clearly: what should happen next on this job?</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>This panel should answer one question clearly: what should happen next on this job?</div>
             <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff4e5", border: "1px solid #f1d7b0" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "#9a6700" }}>Next required action</div><div style={{ marginTop: 6, fontWeight: 800 }}>{nextAction(job)}</div></div>
+              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--amber-bg)", border: "1px solid var(--amber)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--amber-text)" }}>Next required action</div><div style={{ marginTop: 6, fontWeight: 800 }}>{nextAction(job)}</div></div>
               <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--surface-2)", border: "1px solid var(--border)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Current status</div><div style={{ marginTop: 6, fontWeight: 800 }}>{status.label}</div></div>
               <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--surface-2)", border: "1px solid var(--border)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Most relevant date</div><div style={{ marginTop: 6, fontWeight: 800 }}><DateTimeStack value={operationalDate(job)} /></div></div>
             </div>

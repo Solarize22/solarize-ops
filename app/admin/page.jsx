@@ -53,7 +53,7 @@ const PERMISSIONS_MATRIX = [
     category: "Reports & Analytics",
     icon: BarChart3,
     rows: [
-      { label: "View reports",           owner: true,  admin: true,  installer: false, salesperson: false },
+      { label: "View reports",           owner: true,  admin: false, installer: false, salesperson: false },
       { label: "View revenue data",      owner: true,  admin: false, installer: false, salesperson: false },
     ],
   },

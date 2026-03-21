@@ -34,7 +34,8 @@ export async function GET(req, { params }) {
         group by j.id, rep.full_name
         limit 1
       `,
-      ctx.sql`
+      showFinancials
+        ? ctx.sql`
         select
           i.*,
           coalesce(
@@ -55,7 +56,8 @@ export async function GET(req, { params }) {
         where i.job_id = ${access.id}
         group by i.id
         order by i.created_at asc
-      `,
+      `
+        : Promise.resolve([]),
       ctx.sql`
         select *
         from inspections
@@ -118,7 +120,7 @@ export async function GET(req, { params }) {
           county: row.county,
         },
         contractType: row.contract_type,
-        financer: row.financer,
+        financer: showFinancials ? row.financer : null,
         contractor: row.contractor,
         partner: row.partner,
         utilityCompany: row.utility_company,
@@ -180,7 +182,9 @@ export async function GET(req, { params }) {
         createdAt: inspection.created_at,
         updatedAt: inspection.updated_at,
       })),
-      history: historyRows.map((item) => ({
+      history: historyRows
+        .filter((item) => showFinancials || (!item.related_invoice_id && !item.related_payment_id && item.event_type !== "invoice_created" && item.event_type !== "payment_received"))
+        .map((item) => ({
         id: item.id,
         fromStatus: item.from_status,
         toStatus: item.to_status,
