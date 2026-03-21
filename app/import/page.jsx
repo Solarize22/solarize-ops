@@ -337,6 +337,15 @@ export default function ImportPage() {
   const [deletingBatchId, setDeletingBatchId] = useState("");
   const fileRef = useRef();
 
+  async function parseApiResponse(res, fallbackMessage) {
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!res.ok) {
+      throw new Error(data?.error || data?.message || fallbackMessage || `Request failed (${res.status})`);
+    }
+    return data;
+  }
+
   useEffect(() => {
     loadImportHistory();
   }, []);
@@ -351,8 +360,7 @@ export default function ImportPage() {
     setHistoryError("");
     try {
       const res = await fetch("/api/v2/import/history");
-      if (!res.ok) throw new Error("Could not load recent imports");
-      const data = await res.json();
+      const data = await parseApiResponse(res, "Could not load recent imports");
       setImportHistory(Array.isArray(data) ? data : []);
     } catch (err) {
       setHistoryError(err.message || "Could not load recent imports");
@@ -433,7 +441,7 @@ export default function ImportPage() {
             importMeta: { fileName },
           }),
         });
-        const data = await res.json();
+        const data = await parseApiResponse(res, "Import failed");
         succeeded  = data.added ?? payload.length;
       } else {
         const res  = await fetch("/api/v2/import/jobs", {
@@ -441,7 +449,7 @@ export default function ImportPage() {
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await parseApiResponse(res, "Update failed");
         succeeded  = data.updated ?? payload.length;
         if (data.notFound?.length) {
           data.notFound.forEach(id => failed.push({ id, reason: "Not found during update" }));
@@ -469,8 +477,7 @@ export default function ImportPage() {
     setDeletingBatchId(batch.id);
     try {
       const res = await fetch(`/api/v2/import/history?batchId=${encodeURIComponent(batch.id)}`, { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not delete import");
+      const data = await parseApiResponse(res, "Could not delete import").catch(() => ({}));
       await loadImportHistory();
       setResults({
         total: batch.count,
