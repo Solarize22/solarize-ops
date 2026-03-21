@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { useAllJobs, jobsToInvoices } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
 import Link from "next/link";
 import { Search, AlertCircle, Lock } from "lucide-react";
@@ -15,19 +14,29 @@ const TYPES = ["All", "M1", "M2"];
 export default function InvoicesPage() {
   const router = useRouter();
   const { loading: roleLoading, isOwner } = useUserRole();
-  const allJobs = useAllJobs();
-  const invoices = useMemo(() => jobsToInvoices(allJobs), [allJobs]);
+  const [invoices, setInvoices] = useState([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
 
+  useEffect(() => {
+    if (!isOwner) return;
+    setLoadingInvoices(true);
+    fetch("/api/v2/invoices")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setInvoices(Array.isArray(data) ? data : []))
+      .catch(() => setInvoices([]))
+      .finally(() => setLoadingInvoices(false));
+  }, [isOwner]);
+
   // Must be before any early returns — hooks must always run in the same order
   const filtered = useMemo(() => {
     return invoices.filter(inv => {
-      const text = [inv.customer, inv.id, inv.jobId, inv.financer].join(" ").toLowerCase();
+      const text = [inv.customerName, inv.invoiceNumber, inv.jobNumber, inv.financer].join(" ").toLowerCase();
       const matchSearch = text.includes(search.toLowerCase());
       const matchStatus = statusFilter === "All" || inv.status === statusFilter;
-      const matchType = typeFilter === "All" || inv.type === typeFilter;
+      const matchType = typeFilter === "All" || inv.invoiceType === typeFilter;
       return matchSearch && matchStatus && matchType;
     });
   }, [invoices, search, statusFilter, typeFilter]);
@@ -59,9 +68,9 @@ export default function InvoicesPage() {
     );
   }
 
-  const paid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0);
-  const pending = invoices.filter(i => i.status === "Pending").reduce((s, i) => s + i.amount, 0);
-  const overdue = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + i.amount, 0);
+  const paid = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + i.totalCents, 0) / 100;
+  const pending = invoices.filter(i => i.status === "Pending").reduce((s, i) => s + i.balanceCents, 0) / 100;
+  const overdue = invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + i.balanceCents, 0) / 100;
   const overdueItems = invoices.filter(i => i.status === "Overdue");
 
   return (
@@ -89,7 +98,7 @@ export default function InvoicesPage() {
               {overdueItems.length} overdue invoice{overdueItems.length > 1 ? "s" : ""} — {formatCurrency(overdue)} outstanding
             </div>
             <div style={{ fontSize: 12, color: "var(--red)", marginTop: 3 }}>
-              {overdueItems.map(i => `${i.id} (${i.customer} · ${i.type})`).join(", ")}
+              {overdueItems.map(i => `${i.invoiceNumber} (${i.customerName} · ${i.invoiceType})`).join(", ")}
             </div>
           </div>
         </div>
@@ -113,7 +122,7 @@ export default function InvoicesPage() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Total invoiced</div>
-          <div className="stat-value">{formatCurrency(invoices.reduce((s, i) => s + i.amount, 0))}</div>
+          <div className="stat-value">{formatCurrency(invoices.reduce((s, i) => s + i.totalCents, 0) / 100)}</div>
           <div className="stat-detail">{invoices.length} invoices total</div>
         </div>
       </div>
@@ -140,7 +149,7 @@ export default function InvoicesPage() {
           </button>
         )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {filtered.length} invoice{filtered.length !== 1 ? "s" : ""}
+          {loadingInvoices ? "Loading..." : `${filtered.length} invoice${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
 
@@ -162,20 +171,23 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {!loadingInvoices && filtered.length === 0 && (
                 <tr><td colSpan={10} className="empty-state">No invoices match your filters.</td></tr>
+              )}
+              {loadingInvoices && (
+                <tr><td colSpan={10} className="empty-state">Loading invoices...</td></tr>
               )}
               {filtered.map(inv => (
                 <tr key={inv.id} style={inv.status === "Overdue" ? { background: "#fff5f5" } : {}}>
-                  <td><span className="mono badge badge-slate">{inv.id}</span></td>
+                  <td><span className="mono badge badge-slate">{inv.invoiceNumber}</span></td>
                   <td style={{ fontWeight: 500 }}>
-                    <Link href={`/jobs/${inv.jobId}`} onClick={e => e.stopPropagation()} style={{ color: "inherit", textDecoration: "none" }}>
-                      {inv.customer}
+                    <Link href={`/jobs/${inv.jobNumber}`} onClick={e => e.stopPropagation()} style={{ color: "inherit", textDecoration: "none" }}>
+                      {inv.customerName}
                     </Link>
                   </td>
                   <td>
-                    <Link href={`/jobs/${inv.jobId}`} onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}>
-                      <span className="mono badge badge-slate">{inv.jobId}</span>
+                    <Link href={`/jobs/${inv.jobNumber}`} onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}>
+                      <span className="mono badge badge-slate">{inv.jobNumber}</span>
                     </Link>
                   </td>
                   <td>
@@ -186,14 +198,14 @@ export default function InvoicesPage() {
                       background: "var(--surface-2)",
                       padding: "2px 7px",
                       borderRadius: 4,
-                    }}>{inv.type}</span>
+                    }}>{inv.invoiceType}</span>
                   </td>
                   <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>{inv.financer}</td>
-                  <td style={{ fontWeight: 600 }}>{formatCurrency(inv.amount)}</td>
+                  <td style={{ fontWeight: 600 }}>{formatCurrency(inv.totalCents / 100)}</td>
                   <td><span className={`badge ${statusBadgeClass(inv.status)}`}>{inv.status}</span></td>
-                  <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>{formatDate(inv.dueDate)}</td>
-                  <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>{formatDate(inv.paidDate)}</td>
-                  <td style={{ color: "var(--text-secondary)", fontSize: 12, maxWidth: 200 }}>{inv.notes || "—"}</td>
+                  <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>{formatDate(inv.dueAt)}</td>
+                  <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>{inv.status === "Paid" ? formatDate(inv.updatedAt) : "—"}</td>
+                  <td style={{ color: "var(--text-secondary)", fontSize: 12, maxWidth: 200 }}>{inv.memo || "—"}</td>
                 </tr>
               ))}
             </tbody>
