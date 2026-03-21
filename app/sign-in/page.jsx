@@ -12,7 +12,7 @@ export default function SignInPage() {
     }}>
       <div style={{ textAlign: "center" }}>
         <div style={{ marginBottom: 24 }}>
-          <img src="/logo.jpg" alt="Solarize Home Energy" style={{ height: 48, borderRadius: 8 }} />
+          <img src="/logo-2026.png" alt="Solarize Home Energy" style={{ height: 48 }} />
           <div style={{ fontWeight: 700, fontSize: 18, marginTop: 10 }}>Solarize Home Energy</div>
           <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Operations Dashboard</div>
         </div>

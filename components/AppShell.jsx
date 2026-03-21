@@ -60,7 +60,7 @@ function SidebarContent({ children }) {
       <aside className="app-sidebar" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div className="sidebar-logo">
           <Image
-            src="/logo.png"
+            src="/logo-2026.png"
             alt="Solarize Home Energy"
             width={180}
             height={72}

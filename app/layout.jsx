@@ -7,8 +7,8 @@ export const metadata = {
   title: "Solarize Home Energy",
   description: "Solar operations dashboard",
   icons: {
-    icon: "/logo.png",
-    apple: "/logo.png",
+    icon: "/logo-2026.png",
+    apple: "/logo-2026.png",
   },
 };
 
