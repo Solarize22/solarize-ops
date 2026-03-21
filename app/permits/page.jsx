@@ -1,27 +1,35 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useAllJobs, jobsToPermits } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 const STATUSES = ["All", "Approved", "Submitted", "In Review", "Utility Redesign Needed", "Not Submitted"];
 
 export default function PermitsPage() {
-  const allJobs = useAllJobs();
-  const permits = useMemo(() => jobsToPermits(allJobs), [allJobs]);
+  const [permits, setPermits] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/v2/permits")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setPermits(Array.isArray(data) ? data : []))
+      .catch(() => setPermits([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   const filtered = useMemo(() => {
     return permits.filter(p => {
-      const text = [p.customer, p.town, p.ahj, p.status, p.jobId].join(" ").toLowerCase();
+      const text = [p.customer, p.town, p.ahj, p.status, p.jobNumber].join(" ").toLowerCase();
       const matchSearch = text.includes(search.toLowerCase());
       const matchStatus = statusFilter === "All" || p.status === statusFilter;
       return matchSearch && matchStatus;
     });
-  }, [search, statusFilter]);
+  }, [permits, search, statusFilter]);
 
   const approved = permits.filter(p => p.status === "Approved").length;
   const needsAction = permits.filter(p => ["In Review", "Utility Redesign Needed", "Not Submitted"].includes(p.status)).length;
@@ -31,29 +39,29 @@ export default function PermitsPage() {
     <AppShell>
       <div className="page-header">
         <h1>Permits</h1>
-        <p>Town permit progress, AHJ notes, and utility redesign tracking.</p>
+        <p>Permit / closeout status inferred from normalized workflow records.</p>
       </div>
 
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-label">Approved</div>
           <div className="stat-value" style={{ color: "var(--green)" }}>{approved}</div>
-          <div className="stat-detail">Ready to inspect or PTO</div>
+          <div className="stat-detail">Ready for closeout / PTO</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Submitted</div>
           <div className="stat-value" style={{ color: "var(--blue)" }}>{submitted}</div>
-          <div className="stat-detail">Awaiting town response</div>
+          <div className="stat-detail">Awaiting response</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Needs action</div>
           <div className="stat-value" style={{ color: "var(--amber)" }}>{needsAction}</div>
-          <div className="stat-detail">Review, redesign, or submission</div>
+          <div className="stat-detail">Review or issue resolution</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Total permits</div>
           <div className="stat-value">{permits.length}</div>
-          <div className="stat-detail">Across all active jobs</div>
+          <div className="stat-detail">Across normalized jobs</div>
         </div>
       </div>
 
@@ -76,7 +84,7 @@ export default function PermitsPage() {
           </button>
         )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {filtered.length} permit{filtered.length !== 1 ? "s" : ""}
+          {loading ? "Loading..." : `${filtered.length} permit${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
 
@@ -98,14 +106,17 @@ export default function PermitsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <tr><td colSpan={10} className="empty-state">No permits match your filters.</td></tr>
+              )}
+              {loading && (
+                <tr><td colSpan={10} className="empty-state">Loading permits...</td></tr>
               )}
               {filtered.map(p => (
                 <tr key={p.id}>
                   <td><span className="mono badge badge-slate">{p.id}</span></td>
                   <td style={{ fontWeight: 500 }}>{p.customer}</td>
-                  <td><span className="mono badge badge-slate">{p.jobId}</span></td>
+                  <td><span className="mono badge badge-slate">{p.jobNumber}</span></td>
                   <td>
                     <div style={{ fontWeight: 500, fontSize: 12 }}>{p.town}</div>
                     <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{p.ahj}</div>

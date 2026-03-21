@@ -1,634 +1,661 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { formatCurrency, formatDate, computeStage, STAGES, STAGE_COLORS } from "@/lib/utils";
-import {
-  ArrowLeft, Pencil, Save, X, MapPin, Phone, Mail,
-  Zap, DollarSign, User, Plus, Minus, Check,
-  AlertTriangle, Calendar, Users,
-} from "lucide-react";
+import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
+import { ArrowLeft, Calendar, DollarSign, FileText, ShieldCheck, Users } from "lucide-react";
+import { useUserRole } from "@/lib/useUserRole";
 
-const STATUSES       = ["Scheduled","Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed","Rescheduled / Issue"];
-const PERMIT_STATUSES = ["Not Submitted","Submitted","In Review","Approved","Utility Redesign Needed"];
-const INTERCONNECTION_STATUSES = ["Not submitted","Submitted","Pending redesign","Approved"];
-const REPS           = ["Tommy","Kyle","Matt"];
-const FINANCERS      = ["GoodLeap","LightReach","Mosaic","Cash","Sunlight","Dividend","Empower"];
-const CONTRACTORS    = ["Solarize","Empower","Other"];
-const ROOF_TYPES     = ["Asphalt shingle","Metal","Tile","Flat/TPO","Cedar shake"];
-const INVERTERS      = ["Enphase IQ8A","Enphase IQ8M","Enphase IQ8H","SolarEdge HD Wave","SolarEdge Energy Hub"];
-const INSTALL_STATUSES    = ["Scheduled","Complete","Cancelled"];
-const INSPECTION_STATUSES = ["Scheduled","Passed","Failed"];
-const DEALS          = ["Loan","Cash","TPO","Dividend"];
-const MONITORING_STATUSES = ["Active","Pending_communication"];
-
-const STATUS_COLORS = {
-  "Scheduled":             { bg: "#dbeafe", color: "#1e3a8a" },
-  "Install Complete":      { bg: "#d8f3dc", color: "#1b4332" },
-  "Inspection Scheduled":  { bg: "#dbeafe", color: "#1e3a8a" },
-  "Inspection Passed":     { bg: "#d8f3dc", color: "#1b4332" },
-  "Fully Paid / Closed":   { bg: "#1a1917", color: "#ffffff" },
-  "Rescheduled / Issue":   { bg: "#fee2e2", color: "#7f1d1d" },
-};
-
-const PIPELINE_STEPS = [
-  { key: "scheduled",   label: "Scheduled" },
-  { key: "install",     label: "Install" },
-  { key: "inspection",  label: "Inspection" },
-  { key: "passed",      label: "Passed" },
-  { key: "closed",      label: "Closed" },
+const STATUS_OPTIONS = [
+  "created",
+  "scheduled",
+  "install_completed",
+  "inspection_scheduled",
+  "inspection_passed",
+  "inspection_failed",
+  "pto_submitted",
+  "pto_granted",
+  "m1_invoiced",
+  "m1_partially_paid",
+  "m1_paid",
+  "m2_invoiced",
+  "m2_partially_paid",
+  "paid_in_full",
+  "on_hold",
+  "cancelled",
 ];
 
-function stepDone(key, job) {
-  if (key === "scheduled")  return true;
-  if (key === "install")    return ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
-  if (key === "inspection") return ["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(job.status);
-  if (key === "passed")     return ["Inspection Passed","Fully Paid / Closed"].includes(job.status);
-  if (key === "closed")     return job.status === "Fully Paid / Closed";
-  return false;
+const INVOICE_TYPES = ["M1", "M2", "ADDER", "SPECIAL"];
+const PAYMENT_METHODS = ["ACH", "WIRE", "CHECK", "CREDIT_CARD", "FINANCER", "CASH", "OTHER"];
+
+function Section({ title, icon: Icon, children, action = null }) {
+  return (
+    <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {Icon && <Icon size={14} style={{ color: "var(--text-secondary)" }} />}
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{title}</div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
 }
 
 function Field({ label, value }) {
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13 }}>{value || "—"}</div>
-    </div>
-  );
-}
-
-function EditField({ label, name, value, onChange, type = "text", options = null }) {
-  return (
-    <div>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>{label}</div>
-      {options ? (
-        <select name={name} value={value || ""} onChange={onChange} style={{ width: "100%" }}>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : type === "checkbox" ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 4 }}>
-          <input type="checkbox" name={name} checked={!!value} onChange={onChange} style={{ width: 15, height: 15 }} />
-          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Yes</span>
-        </div>
-      ) : (
-        <input type={type} name={name} value={value || ""} onChange={onChange} style={{ width: "100%" }} />
-      )}
-    </div>
-  );
-}
-
-function NoteEditor({ job, applyUpdate, editing, handleChange }) {
-  const [localNotes, setLocalNotes] = useState(job.notes || "");
-  const [noteSaved, setNoteSaved]   = useState(false);
-  useEffect(() => { setLocalNotes(job.notes || ""); }, [job.notes]);
-  function save() {
-    applyUpdate({ notes: localNotes });
-    setNoteSaved(true);
-    setTimeout(() => setNoteSaved(false), 2000);
-  }
-  if (editing) {
-    return <textarea name="notes" value={job.notes || ""} onChange={handleChange} rows={4} style={{ width: "100%", resize: "vertical" }} />;
-  }
-  return (
-    <div>
-      <textarea value={localNotes} onChange={e => setLocalNotes(e.target.value)} onBlur={save} rows={4} placeholder="Add internal notes..." style={{ width: "100%", resize: "vertical" }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <button onClick={save} style={{ padding: "5px 14px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>Save notes</button>
-        {noteSaved && <span style={{ fontSize: 12, color: "var(--green)", display: "flex", alignItems: "center", gap: 4 }}><Check size={12} /> Saved</span>}
+      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
+        {label}
       </div>
+      <div style={{ fontSize: 13, color: "var(--text-primary)" }}>{value || "—"}</div>
     </div>
   );
+}
+
+function EmptyState({ message }) {
+  return <div className="empty-state" style={{ padding: "10px 0" }}>{message}</div>;
 }
 
 export default function JobDetailPage() {
-  const { id }       = useParams();
-  const [job, setJob]           = useState(null);
-  const [editing, setEditing]   = useState(false);
-  const [saved, setSaved]       = useState(false);
-  const [loading, setLoading]   = useState(true);
-  const [tl, setTl]             = useState(null);
-  const [tlSaved, setTlSaved]   = useState(false);
-  const [financeData, setFinanceData] = useState(null);
-  const [financeSaved, setFinanceSaved] = useState(false);
-  const savedSnapshot           = useRef(null);
+  const { id } = useParams();
+  const { isOwner, isAdmin, loading: roleLoading } = useUserRole();
+  const [job, setJob] = useState(null);
+  const [invoices, setInvoices] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [inspections, setInspections] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [statusForm, setStatusForm] = useState({ toStatus: "scheduled", effectiveDate: "", note: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
+  const [paymentForm, setPaymentForm] = useState({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
+  const [actionState, setActionState] = useState({ status: "", invoice: "", payment: "", error: "" });
+  const [editingJob, setEditingJob] = useState(false);
+  const [jobForm, setJobForm] = useState(null);
+  const canManageOps = isOwner || isAdmin;
 
   useEffect(() => {
-    fetch("/api/jobs")
-      .then(r => r.json())
-      .then(all => {
-        const found = all.find(j => j.id === id);
-        if (found) {
-          // Normalize field name differences between list (panelCount) and detail (qty)
-          const normalized = { ...found, qty: found.qty || found.panelCount || "" };
-          savedSnapshot.current = { ...normalized };
-          setJob({ ...normalized });
-          // Normalize adders: old DB may have array [{description, cost}], new schema is a number
-          const rawAdders = found.adders;
-          const addersNum = Array.isArray(rawAdders)
-            ? rawAdders.reduce((sum, a) => sum + (Number(a.cost) || 0), 0)
-            : (rawAdders != null ? rawAdders : "");
-          setFinanceData({
-            m1InvoiceNumber: found.m1InvoiceNumber || found.invoiceNumber || "",
-            m2InvoiceNumber: found.m2InvoiceNumber || "",
-            m1Amount:        found.m1Amount != null ? found.m1Amount : "",
-            m2Amount:        found.m2Amount != null ? found.m2Amount : "",
-            adders:          addersNum,
-            m1Status:        !!(found.m1Status ?? found.m1Received),
-            m2Status:        !!(found.m2Status ?? found.m2Received),
-            empowerF1:       !!found.empowerF1,
-            empowerF2:       !!found.empowerF2,
-          });
-          const crewStr = Array.isArray(found.crew) ? found.crew.join(", ") : (found.crew || "");
-          setTl({
-            install1Date:   found.installDate   || "",
-            install1Crew:   crewStr,
-            install1Status: ["Install Complete","Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(found.status) ? "Complete" : "Scheduled",
-            showInstall2:   !!found.installDate2,
-            install2Date:   found.installDate2  || "",
-            install2Crew:   crewStr,
-            install2Status: "Scheduled",
-            inspDate:       found.inspectionDate || "",
-            inspCrew:       crewStr,
-            inspStatus:     ["Inspection Passed","Fully Paid / Closed"].includes(found.status) ? "Passed" : (found.inspectionDate ? "Scheduled" : "Scheduled"),
-            serviceDate:    found.serviceDate   || "",
-            serviceCrew:    "",
-            serviceStatus:  "Scheduled",
-          });
-        } else {
-          setJob(null);
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const jobRes = await fetch(`/api/v2/jobs/${id}`);
+        if (!jobRes.ok) {
+          const data = await jobRes.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to load job");
         }
-      })
-      .catch(() => setJob(null))
-      .finally(() => setLoading(false));
-  }, [id]);
 
-  if (loading) return <AppShell><div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-secondary)" }}>Loading...</div></AppShell>;
-  if (!job) return (
-    <AppShell>
-      <div style={{ textAlign: "center", padding: "60px 20px" }}>
-        <p style={{ color: "var(--text-secondary)", marginBottom: 12 }}>Job not found.</p>
-        <Link href="/jobs" style={{ color: "var(--text-primary)", fontSize: 13 }}>← Back to jobs</Link>
-      </div>
-    </AppShell>
-  );
+        const jobData = await jobRes.json();
+        const [invoicesRes, inspectionsRes, historyRes, paymentsRes] = await Promise.all([
+          fetch(`/api/v2/jobs/${id}/invoices`),
+          fetch(`/api/v2/jobs/${id}/inspections`),
+          fetch(`/api/v2/jobs/${id}/history`),
+          isOwner ? fetch(`/api/v2/jobs/${id}/payments`) : Promise.resolve(null),
+        ]);
 
-  function handleChange(e) {
-    const { name, value, type, checked } = e.target;
-    setJob(prev => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
-  }
+        if (cancelled) return;
 
-  function handleSave() {
-    fetch("/api/jobs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.id, updates: job }) }).catch(() => {});
-    savedSnapshot.current = { ...job };
-    setEditing(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  }
-
-  function handleCancel() { setJob({ ...savedSnapshot.current }); setEditing(false); }
-
-  function applyUpdate(updates) {
-    const stamped = { ...updates, lastUpdated: new Date().toISOString() };
-    setJob(prev => {
-      const next = { ...prev, ...stamped };
-      fetch("/api/jobs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: next.id, updates: stamped }) }).catch(() => {});
-      if (savedSnapshot.current) Object.assign(savedSnapshot.current, stamped);
-      return next;
-    });
-  }
-
-  function saveTimeline() {
-    const toArr = s => s ? s.split(",").map(x => x.trim()).filter(Boolean) : [];
-    const updates = {
-      installDate:    tl.install1Date || "",
-      installDate2:   tl.install2Date || "",
-      inspectionDate: tl.inspDate     || "",
-      serviceDate:    tl.serviceDate  || "",
-    };
-    if (tl.install1Crew.trim()) updates.crew = toArr(tl.install1Crew);
-
-    // Write dedicated status fields for computeStage
-    updates.installStatus    = tl.install1Status;
-    updates.inspectionStatus = tl.inspStatus;
-
-    // Derive job status from timeline
-    const cur = job.status;
-    if (tl.inspStatus === "Passed" && tl.inspDate) {
-      updates.status = "Inspection Passed";
-    } else if (tl.inspStatus === "Failed") {
-      updates.status = "Rescheduled / Issue";
-    } else if (tl.inspDate && tl.inspStatus === "Scheduled" && !["Inspection Passed","Fully Paid / Closed"].includes(cur)) {
-      updates.status = "Inspection Scheduled";
-    } else if (tl.install1Status === "Complete" && tl.install1Date && !["Inspection Scheduled","Inspection Passed","Fully Paid / Closed"].includes(cur)) {
-      updates.status = "Install Complete";
+        setJob(jobData);
+        setInvoices(invoicesRes?.ok ? await invoicesRes.json() : []);
+        setInspections(inspectionsRes?.ok ? await inspectionsRes.json() : []);
+        setHistory(historyRes?.ok ? await historyRes.json() : []);
+        setPayments(paymentsRes?.ok ? await paymentsRes.json() : []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Failed to load job");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
-    applyUpdate(updates);
-    setTlSaved(true);
-    setTimeout(() => setTlSaved(false), 3000);
-  }
+    if (id) load();
+    return () => { cancelled = true; };
+  }, [id, isOwner, refreshKey]);
 
-  function saveFinance() {
-    const updates = {
-      m1InvoiceNumber: financeData.m1InvoiceNumber,
-      m2InvoiceNumber: financeData.m2InvoiceNumber,
-      m1Amount:        financeData.m1Amount !== "" ? parseFloat(financeData.m1Amount) || 0 : 0,
-      m2Amount:        financeData.m2Amount !== "" ? parseFloat(financeData.m2Amount) || 0 : 0,
-      adders:          financeData.adders   !== "" ? parseFloat(financeData.adders)   || 0 : 0,
-      m1Status:        financeData.m1Status,
-      m2Status:        financeData.m2Status,
-      empowerF1:       financeData.empowerF1,
-      empowerF2:       financeData.empowerF2,
-    };
-    applyUpdate(updates);
-    setFinanceSaved(true);
-    setTimeout(() => setFinanceSaved(false), 3000);
-  }
+  useEffect(() => {
+    if (!job) return;
+    setStatusForm((prev) => ({ ...prev, toStatus: job.currentStatus || "scheduled" }));
+    setJobForm({
+      customerName: job.customerName || "",
+      customerPhone: job.customerPhone || "",
+      customerEmail: job.customerEmail || "",
+      address: {
+        street1: job.address?.street1 || "",
+        street2: job.address?.street2 || "",
+        city: job.address?.city || "",
+        state: job.address?.state || "",
+        postalCode: job.address?.postalCode || "",
+        county: job.address?.county || "",
+      },
+      contractType: job.contractType || "",
+      financer: job.financer || "",
+      contractor: job.contractor || "",
+      partner: job.partner || "",
+      utilityCompany: job.utilityCompany || "",
+      systemSizeKw: job.systemSizeKw || "",
+      panelCount: job.panelCount || "",
+      wattPerPanel: job.wattPerPanel || "",
+      inverter: job.inverter || "",
+      module: job.module || "",
+      battery: !!job.battery,
+      roofType: job.roofType || "",
+      contractSignedAt: job.contractSignedAt || "",
+      siteSurveyAt: job.siteSurveyAt || "",
+      installScheduledAt: job.installScheduledAt || "",
+      installCompletedAt: job.installCompletedAt || "",
+      ptoSubmittedAt: job.ptoSubmittedAt || "",
+      ptoGrantedAt: job.ptoGrantedAt || "",
+      notes: job.notes || "",
+    });
+  }, [job?.currentStatus]);
 
-  const sc          = STATUS_COLORS[job.status] || { bg: "#f1f5f9", color: "#334155" };
-  const isIssue     = job.status === "Rescheduled / Issue";
-  const displayStage = computeStage(job);
-  const stageSc      = STAGE_COLORS[displayStage] || { bg: "#f1f5f9", color: "#334155" };
-  const fmt$        = v => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(v || 0);
-  const contractTotal = financeData
-    ? (parseFloat(financeData.m1Amount) || 0) + (parseFloat(financeData.m2Amount) || 0) + (parseFloat(financeData.adders) || 0)
-    : 0;
+  useEffect(() => {
+    if (!paymentForm.invoiceId && invoices.length > 0) {
+      const firstOpen = invoices.find((invoice) => (invoice.balanceCents || 0) > 0);
+      if (firstOpen) {
+        setPaymentForm((prev) => ({ ...prev, invoiceId: firstOpen.id }));
+      }
+    }
+  }, [invoices, paymentForm.invoiceId]);
 
-  function TlRow({ label, green, dateKey, crewKey, statusKey, statusOpts, onAdd, onRemove }) {
+  const invoiceSummary = useMemo(() => {
+    const total = invoices.reduce((sum, inv) => sum + (inv.totalCents || 0), 0);
+    const outstanding = invoices.reduce((sum, inv) => sum + (inv.balanceCents || 0), 0);
+    const paid = total - outstanding;
+    return { total, outstanding, paid };
+  }, [invoices]);
+
+  if (loading || roleLoading) {
     return (
-      <div style={{
-        display: "grid", gridTemplateColumns: "130px 1fr 1fr 110px auto", gap: 8, alignItems: "center",
-        padding: "10px 12px", borderRadius: "var(--radius-md)", marginBottom: 8,
-        background: green ? "#f0fdf4" : "var(--surface-2)",
-        border: `1px solid ${green ? "#bbf7d0" : "var(--border)"}`,
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: green ? "#15803d" : "var(--text-primary)" }}>{label}</div>
-        <input type="date" value={tl[dateKey]} onChange={e => setTl(p => ({ ...p, [dateKey]: e.target.value }))} style={{ fontSize: 12 }} />
-        <input type="text" placeholder="Crew (comma-sep)" value={tl[crewKey]} onChange={e => setTl(p => ({ ...p, [crewKey]: e.target.value }))} style={{ fontSize: 12 }} />
-        <select value={tl[statusKey]} onChange={e => setTl(p => ({ ...p, [statusKey]: e.target.value }))} style={{ fontSize: 12 }}>
-          {statusOpts.map(o => <option key={o}>{o}</option>)}
-        </select>
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: green ? "#16a34a" : "var(--text-tertiary)", fontStyle: "italic", whiteSpace: "nowrap" }}>auto-adds to schedule</span>
-          {onAdd && <button onClick={onAdd} title="Add Day 2" style={{ padding: "2px 6px", borderRadius: 4, border: "0.5px solid var(--border-strong)", background: "var(--surface)", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", gap: 2, fontFamily: "var(--font-body)" }}><Plus size={10} /></button>}
-          {onRemove && <button onClick={onRemove} title="Remove" style={{ padding: "2px 6px", borderRadius: 4, border: "0.5px solid #fca5a5", background: "#fff5f5", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", color: "#dc2626", fontFamily: "var(--font-body)" }}><Minus size={10} /></button>}
-        </div>
-      </div>
+      <AppShell>
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-secondary)" }}>Loading job…</div>
+      </AppShell>
     );
+  }
+
+  if (error || !job) {
+    return (
+      <AppShell>
+        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+          <p style={{ color: "var(--text-secondary)", marginBottom: 12 }}>{error || "Job not found."}</p>
+          <Link href="/jobs" style={{ color: "var(--text-primary)", fontSize: 13 }}>← Back to jobs</Link>
+        </div>
+      </AppShell>
+    );
+  }
+
+  async function submitStatusTransition(e) {
+    e.preventDefault();
+    setActionState((prev) => ({ ...prev, error: "", status: "Saving..." }));
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/status-transitions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(statusForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to change status");
+      setActionState((prev) => ({ ...prev, status: "Saved" }));
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setActionState((prev) => ({ ...prev, error: err.message || "Failed to change status", status: "" }));
+    }
+  }
+
+  async function submitInvoice(e) {
+    e.preventDefault();
+    setActionState((prev) => ({ ...prev, error: "", invoice: "Saving..." }));
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(invoiceForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to create invoice");
+      setInvoiceForm({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
+      setActionState((prev) => ({ ...prev, invoice: "Saved" }));
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setActionState((prev) => ({ ...prev, error: err.message || "Failed to create invoice", invoice: "" }));
+    }
+  }
+
+  async function submitPayment(e) {
+    e.preventDefault();
+    setActionState((prev) => ({ ...prev, error: "", payment: "Saving..." }));
+    try {
+      const res = await fetch("/api/v2/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paymentForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to record payment");
+      setPaymentForm({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
+      setActionState((prev) => ({ ...prev, payment: "Saved" }));
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setActionState((prev) => ({ ...prev, error: err.message || "Failed to record payment", payment: "" }));
+    }
+  }
+
+  async function submitJobUpdate(e) {
+    e.preventDefault();
+    setActionState((prev) => ({ ...prev, error: "", status: "Saving..." }));
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(jobForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update job");
+      setEditingJob(false);
+      setActionState((prev) => ({ ...prev, status: "Saved" }));
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setActionState((prev) => ({ ...prev, error: err.message || "Failed to update job", status: "" }));
+    }
   }
 
   return (
     <AppShell>
-
-      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 16 }}>
         <Link href="/jobs" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-secondary)", textDecoration: "none", marginBottom: 10 }}>
           <ArrowLeft size={13} /> Back to jobs
         </Link>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 5 }}>
-              {isIssue && <AlertTriangle size={16} style={{ color: "#dc2626" }} />}
-              <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>{job.customer}</h1>
-              <span className="mono badge badge-slate">{job.id}</span>
-              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 500, background: sc.bg, color: sc.color }}>{job.status}</span>
-              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 600, background: stageSc.bg, color: stageSc.color }}>{displayStage}</span>
-              {job.battery && <span className="badge badge-slate">Battery</span>}
-              {job.hoa    && <span className="badge badge-slate">HOA</span>}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+              <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>{job.customerName}</h1>
+              <span className="mono badge badge-slate">{job.jobNumber}</span>
+              <span className={`badge ${statusBadgeClass(job.currentStatus)}`}>{job.currentStatus}</span>
             </div>
-            <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <MapPin size={12} />
-              {[job.street, job.city, job.state, job.zip].filter(Boolean).join(", ")}
-              {job.crew?.length > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <Users size={12} /> {Array.isArray(job.crew) ? job.crew.join(", ") : job.crew}
-                </span>
-              )}
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              {[job.address?.street1, job.address?.city, job.address?.state, job.address?.postalCode].filter(Boolean).join(", ")}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {saved && <span style={{ fontSize: 12, color: "var(--green)" }}>✓ Saved</span>}
-            {!isIssue && job.status !== "Fully Paid / Closed" && (
-              <button className="btn btn-outline" onClick={() => applyUpdate({ status: "Rescheduled / Issue" })} style={{ fontSize: 12, color: "#dc2626", borderColor: "#fca5a5" }}>
-                <AlertTriangle size={12} /> Flag issue
-              </button>
-            )}
-            {editing ? (
-              <>
-                <button className="btn btn-outline" onClick={handleCancel}><X size={13} /> Cancel</button>
-                <button className="btn btn-primary" onClick={handleSave}><Save size={13} /> Save changes</button>
-              </>
-            ) : (
-              <button className="btn btn-primary" onClick={() => setEditing(true)}><Pencil size={13} /> Edit job</button>
-            )}
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+            Normalized detail view
           </div>
         </div>
       </div>
 
-      {/* Issue banner */}
-      {isIssue && (
-        <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "var(--radius-md)", padding: "10px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
-          <AlertTriangle size={14} style={{ color: "#dc2626" }} />
-          <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 600, fontSize: 13, color: "#7f1d1d" }}>Job flagged — needs attention</span>
-            {job.nextAction && <span style={{ fontSize: 12, color: "#991b1b", marginLeft: 10 }}>→ {job.nextAction}</span>}
+      <Section title="Overview" icon={ShieldCheck}>
+        {canManageOps && jobForm ? (
+          <>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              {!editingJob ? (
+                <button className="btn btn-outline" onClick={() => setEditingJob(true)}>Edit Job</button>
+              ) : null}
+            </div>
+            {editingJob ? (
+              <form onSubmit={submitJobUpdate}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px 16px" }}>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Customer Name</div>
+                    <input value={jobForm.customerName} onChange={(e) => setJobForm((prev) => ({ ...prev, customerName: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Phone</div>
+                    <input value={jobForm.customerPhone} onChange={(e) => setJobForm((prev) => ({ ...prev, customerPhone: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Email</div>
+                    <input value={jobForm.customerEmail} onChange={(e) => setJobForm((prev) => ({ ...prev, customerEmail: e.target.value }))} />
+                  </div>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Street</div>
+                    <input value={jobForm.address.street1} onChange={(e) => setJobForm((prev) => ({ ...prev, address: { ...prev.address, street1: e.target.value } }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>City</div>
+                    <input value={jobForm.address.city} onChange={(e) => setJobForm((prev) => ({ ...prev, address: { ...prev.address, city: e.target.value } }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>State</div>
+                    <input value={jobForm.address.state} onChange={(e) => setJobForm((prev) => ({ ...prev, address: { ...prev.address, state: e.target.value } }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>ZIP</div>
+                    <input value={jobForm.address.postalCode} onChange={(e) => setJobForm((prev) => ({ ...prev, address: { ...prev.address, postalCode: e.target.value } }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Financer</div>
+                    <input value={jobForm.financer} onChange={(e) => setJobForm((prev) => ({ ...prev, financer: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Utility</div>
+                    <input value={jobForm.utilityCompany} onChange={(e) => setJobForm((prev) => ({ ...prev, utilityCompany: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>System Size</div>
+                    <input type="number" step="0.01" value={jobForm.systemSizeKw} onChange={(e) => setJobForm((prev) => ({ ...prev, systemSizeKw: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Panels</div>
+                    <input type="number" value={jobForm.panelCount} onChange={(e) => setJobForm((prev) => ({ ...prev, panelCount: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Inverter</div>
+                    <input value={jobForm.inverter} onChange={(e) => setJobForm((prev) => ({ ...prev, inverter: e.target.value }))} />
+                  </div>
+                  <div style={{ gridColumn: "span 4" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Notes</div>
+                    <textarea rows={4} value={jobForm.notes} onChange={(e) => setJobForm((prev) => ({ ...prev, notes: e.target.value }))} style={{ width: "100%", resize: "vertical" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-outline" type="button" onClick={() => { setEditingJob(false); setRefreshKey((v) => v + 1); }}>Cancel</button>
+                  <button className="btn btn-primary" type="submit">Save Job</button>
+                </div>
+              </form>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 18px" }}>
+                <Field label="Rep" value={job.repName} />
+                <Field label="Crew" value={job.crewNames?.join(", ")} />
+                <Field label="Financer" value={job.financer} />
+                <Field label="Utility" value={job.utilityCompany} />
+                <Field label="Contract Type" value={job.contractType} />
+                <Field label="Contractor" value={job.contractor} />
+                <Field label="Partner" value={job.partner} />
+                <Field label="Battery" value={job.battery ? "Yes" : "No"} />
+                <Field label="System Size" value={job.systemSizeKw ? `${job.systemSizeKw} kW` : null} />
+                <Field label="Panels" value={job.panelCount} />
+                <Field label="Inverter" value={job.inverter} />
+                <Field label="Roof Type" value={job.roofType} />
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 18px" }}>
+            <Field label="Rep" value={job.repName} />
+            <Field label="Crew" value={job.crewNames?.join(", ")} />
+            <Field label="Financer" value={job.financer} />
+            <Field label="Utility" value={job.utilityCompany} />
+            <Field label="Contract Type" value={job.contractType} />
+            <Field label="Contractor" value={job.contractor} />
+            <Field label="Partner" value={job.partner} />
+            <Field label="Battery" value={job.battery ? "Yes" : "No"} />
+            <Field label="System Size" value={job.systemSizeKw ? `${job.systemSizeKw} kW` : null} />
+            <Field label="Panels" value={job.panelCount} />
+            <Field label="Inverter" value={job.inverter} />
+            <Field label="Roof Type" value={job.roofType} />
           </div>
-          <button onClick={() => applyUpdate({ status: job.installDate ? "Install Complete" : "Scheduled" })} style={{ padding: "4px 12px", borderRadius: 8, border: "none", background: "#1a1917", color: "white", fontSize: 11, cursor: "pointer", fontFamily: "var(--font-body)" }}>
-            Resolve &amp; resume
-          </button>
+        )}
+      </Section>
+
+      <Section title="Milestones" icon={Calendar}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 18px" }}>
+          <Field label="Contract Signed" value={formatDate(job.contractSignedAt)} />
+          <Field label="Site Survey" value={formatDate(job.siteSurveyAt)} />
+          <Field label="Install Scheduled" value={formatDate(job.installScheduledAt)} />
+          <Field label="Install Completed" value={formatDate(job.installCompletedAt)} />
+          <Field label="PTO Submitted" value={formatDate(job.ptoSubmittedAt)} />
+          <Field label="PTO Granted" value={formatDate(job.ptoGrantedAt)} />
+          <Field label="Status Changed" value={formatDate(job.currentStatusChangedAt)} />
+          <Field label="Updated" value={formatDate(job.updatedAt)} />
         </div>
+      </Section>
+
+      {canManageOps && (
+        <Section title="Status Transition" icon={Calendar}>
+          <form onSubmit={submitStatusTransition} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 2fr auto", gap: 10, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Next Status</div>
+              <select value={statusForm.toStatus} onChange={(e) => setStatusForm((prev) => ({ ...prev, toStatus: e.target.value }))}>
+                {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Effective Date</div>
+              <input type="date" value={statusForm.effectiveDate} onChange={(e) => setStatusForm((prev) => ({ ...prev, effectiveDate: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Note</div>
+              <input value={statusForm.note} onChange={(e) => setStatusForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="Optional reason or context" />
+            </div>
+            <button className="btn btn-primary" type="submit">Save</button>
+          </form>
+          {actionState.status && <div style={{ marginTop: 10, fontSize: 12, color: "var(--green)" }}>{actionState.status}</div>}
+        </Section>
       )}
 
-      {/* ── Section 1: Pipeline progress ────────────────────────────────── */}
-      <div className="card" style={{ padding: "18px 24px", marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 18 }}>Pipeline progress</div>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", position: "relative" }}>
-          {/* Connector line */}
-          <div style={{ position: "absolute", top: 15, left: "calc(10% + 16px)", right: "calc(10% + 16px)", height: 2, background: "var(--border)", zIndex: 0 }} />
-          {PIPELINE_STEPS.map((step, i) => {
-            const done    = stepDone(step.key, job);
-            const current = !done && i > 0 && stepDone(PIPELINE_STEPS[i - 1].key, job);
-            return (
-              <div key={step.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 1, flex: 1 }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: "50%",
-                  background: done ? "#16a34a" : current ? "var(--text-primary)" : "var(--surface)",
-                  border: done || current ? "none" : "2px solid var(--border-strong)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: current ? "0 0 0 3px #e2e8f0" : "none",
-                }}>
-                  {done    && <Check size={14} color="white" />}
-                  {current && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "white" }} />}
-                </div>
-                <span style={{ fontSize: 11, fontWeight: done || current ? 600 : 400, color: done ? "#16a34a" : current ? "var(--text-primary)" : "var(--text-tertiary)", textAlign: "center" }}>
-                  {step.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em" }}>Stage</span>
-          <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 600, background: stageSc.bg, color: stageSc.color }}>{displayStage}</span>
-        </div>
-      </div>
-
-      {/* ── Section 2: Job timeline ──────────────────────────────────────── */}
-      <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Calendar size={14} style={{ color: "var(--text-secondary)" }} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Job timeline</span>
+      <Section title="Invoices" icon={FileText}>
+        <div className="stat-grid" style={{ marginBottom: 16 }}>
+          <div className="stat-card">
+            <div className="stat-label">Total invoiced</div>
+            <div className="stat-value">{formatCurrency(invoiceSummary.total / 100)}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Collected</div>
+            <div className="stat-value" style={{ color: "var(--green)" }}>{formatCurrency(invoiceSummary.paid / 100)}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Outstanding</div>
+            <div className="stat-value" style={{ color: "var(--amber)" }}>{formatCurrency(invoiceSummary.outstanding / 100)}</div>
           </div>
         </div>
-
-        {/* Column headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "130px 1fr 1fr 110px auto", gap: 8, padding: "0 12px", marginBottom: 6 }}>
-          {["Event","Date","Crew","Status",""].map(h => (
-            <div key={h} style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>{h}</div>
-          ))}
-        </div>
-
-        {tl && (
-          <>
-            <TlRow label="Install — Day 1" green dateKey="install1Date" crewKey="install1Crew" statusKey="install1Status" statusOpts={INSTALL_STATUSES} onAdd={!tl.showInstall2 ? () => setTl(p => ({ ...p, showInstall2: true })) : null} />
-            {tl.showInstall2 && (
-              <TlRow label="Install — Day 2" green dateKey="install2Date" crewKey="install2Crew" statusKey="install2Status" statusOpts={INSTALL_STATUSES} onRemove={() => setTl(p => ({ ...p, showInstall2: false, install2Date: "", install2Crew: "", install2Status: "Scheduled" }))} />
-            )}
-            <TlRow label="Inspection" green={false} dateKey="inspDate" crewKey="inspCrew" statusKey="inspStatus" statusOpts={INSPECTION_STATUSES} />
-            <TlRow label="Service visit" green={false} dateKey="serviceDate" crewKey="serviceCrew" statusKey="serviceStatus" statusOpts={INSTALL_STATUSES} />
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-              <button onClick={saveTimeline} style={{ padding: "7px 18px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>
-                Save timeline
-              </button>
-              {tlSaved && <span style={{ fontSize: 12, color: "var(--green)", display: "flex", alignItems: "center", gap: 4 }}><Check size={12} /> Timeline saved — schedule updated</span>}
-            </div>
-          </>
+        {invoices.length === 0 ? (
+          <EmptyState message="No invoice records yet." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Issued</th>
+                  <th>Due</th>
+                  <th>Total</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((invoice) => (
+                  <tr key={invoice.id}>
+                    <td><span className="mono badge badge-slate">{invoice.invoiceNumber}</span></td>
+                    <td>{invoice.invoiceType}</td>
+                    <td><span className={`badge ${statusBadgeClass(invoice.status === "partially_paid" ? "Pending" : invoice.status === "paid" ? "Paid" : "Pending")}`}>{invoice.status}</span></td>
+                    <td>{formatDate(invoice.issuedAt)}</td>
+                    <td>{formatDate(invoice.dueAt)}</td>
+                    <td>{formatCurrency((invoice.totalCents || 0) / 100)}</td>
+                    <td>{formatCurrency((invoice.balanceCents || 0) / 100)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+        {isOwner && (
+          <form onSubmit={submitInvoice} style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1.2fr 0.9fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Type</div>
+              <select value={invoiceForm.invoiceType} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoiceType: e.target.value }))}>
+                {INVOICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Invoice Number</div>
+              <input value={invoiceForm.invoiceNumber} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoiceNumber: e.target.value }))} placeholder="INV-3001" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Amount</div>
+              <input type="number" step="0.01" value={invoiceForm.amount} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Issued</div>
+              <input type="date" value={invoiceForm.issuedAt} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, issuedAt: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Due</div>
+              <input type="date" value={invoiceForm.dueAt} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, dueAt: e.target.value }))} />
+            </div>
+            <div style={{ gridColumn: "1 / span 2" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Description</div>
+              <input value={invoiceForm.description} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, description: e.target.value }))} placeholder="Milestone 1" />
+            </div>
+            <div style={{ gridColumn: "3 / span 2" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Memo</div>
+              <input value={invoiceForm.memo} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="Optional memo" />
+            </div>
+            <button className="btn btn-primary" type="submit">Create Invoice</button>
+          </form>
+        )}
+        {actionState.invoice && <div style={{ marginTop: 10, fontSize: 12, color: "var(--green)" }}>{actionState.invoice}</div>}
+      </Section>
 
-      {/* ── Section 3: Finances ─────────────────────────────────────────── */}
-      {financeData && (
-        <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <DollarSign size={14} style={{ color: "var(--text-secondary)" }} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Finances</span>
+      {isOwner && (
+        <Section title="Payments" icon={DollarSign}>
+          {payments.length === 0 ? (
+            <EmptyState message="No payment records yet." />
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th>Received</th>
+                    <th>Amount</th>
+                    <th>Allocations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((payment) => (
+                    <tr key={payment.id}>
+                      <td><span className="mono badge badge-slate">{payment.paymentReference || "—"}</span></td>
+                      <td>{payment.paymentMethod}</td>
+                      <td><span className={`badge ${statusBadgeClass(payment.status === "settled" ? "Paid" : payment.status === "failed" ? "Overdue" : "Pending")}`}>{payment.status}</span></td>
+                      <td>{formatDate(payment.receivedAt)}</td>
+                      <td>{formatCurrency((payment.amountCents || 0) / 100)}</td>
+                      <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                        {payment.allocations?.length
+                          ? payment.allocations.map((a) => `${a.invoiceNumber}: ${formatCurrency((a.allocatedCents || 0) / 100)}`).join(", ")
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {invoices.filter((invoice) => (invoice.balanceCents || 0) > 0).length > 0 && (
+            <form onSubmit={submitPayment} style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1.2fr 0.8fr 1fr 1fr 1.2fr auto", gap: 10, alignItems: "end" }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Invoice</div>
+                <select value={paymentForm.invoiceId} onChange={(e) => setPaymentForm((prev) => ({ ...prev, invoiceId: e.target.value }))}>
+                  <option value="">Select invoice</option>
+                  {invoices.filter((invoice) => (invoice.balanceCents || 0) > 0).map((invoice) => (
+                    <option key={invoice.id} value={invoice.id}>
+                      {invoice.invoiceNumber} · {formatCurrency((invoice.balanceCents || 0) / 100)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Amount</div>
+                <input type="number" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="0.00" />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Method</div>
+                <select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((prev) => ({ ...prev, paymentMethod: e.target.value }))}>
+                  {PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Received</div>
+                <input type="date" value={paymentForm.receivedAt} onChange={(e) => setPaymentForm((prev) => ({ ...prev, receivedAt: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Reference</div>
+                <input value={paymentForm.paymentReference} onChange={(e) => setPaymentForm((prev) => ({ ...prev, paymentReference: e.target.value }))} placeholder="ACH ref, check #, etc." />
+              </div>
+              <button className="btn btn-primary" type="submit">Record Payment</button>
+            </form>
+          )}
+          {actionState.payment && <div style={{ marginTop: 10, fontSize: 12, color: "var(--green)" }}>{actionState.payment}</div>}
+        </Section>
+      )}
+
+      <Section title="Inspections" icon={Calendar}>
+        {inspections.length === 0 ? (
+          <EmptyState message="No inspection records yet." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Result</th>
+                  <th>Scheduled</th>
+                  <th>Completed</th>
+                  <th>Authority</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inspections.map((inspection) => (
+                  <tr key={inspection.id}>
+                    <td>{inspection.inspectionType}</td>
+                    <td><span className={`badge ${statusBadgeClass(inspection.result === "passed" ? "Approved" : inspection.result === "failed" ? "Inspection Failed" : "Inspection Scheduled")}`}>{inspection.result}</span></td>
+                    <td>{formatDate(inspection.scheduledAt)}</td>
+                    <td>{formatDate(inspection.completedAt)}</td>
+                    <td>{inspection.authorityName || "—"}</td>
+                    <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>{inspection.notes || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+      </Section>
 
-          {/* Invoice numbers */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px", marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M1 Invoice #</div>
-              <input type="text" value={financeData.m1InvoiceNumber} onChange={e => setFinanceData(p => ({ ...p, m1InvoiceNumber: e.target.value }))} style={{ width: "100%" }} placeholder="e.g. INV-2965" />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M2 Invoice #</div>
-              <input type="text" value={financeData.m2InvoiceNumber} onChange={e => setFinanceData(p => ({ ...p, m2InvoiceNumber: e.target.value }))} style={{ width: "100%" }} placeholder="e.g. INV-2966" />
-            </div>
-          </div>
-
-          {/* Amounts + contract total */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px 16px", marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M1 Amount</div>
-              <input type="number" value={financeData.m1Amount} onChange={e => setFinanceData(p => ({ ...p, m1Amount: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>M2 Amount</div>
-              <input type="number" value={financeData.m2Amount} onChange={e => setFinanceData(p => ({ ...p, m2Amount: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Adders</div>
-              <input type="number" value={financeData.adders} onChange={e => setFinanceData(p => ({ ...p, adders: e.target.value }))} style={{ width: "100%" }} placeholder="0" />
-            </div>
-            <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-md)", padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Contract Total</div>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt$(contractTotal)}</div>
-              <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 2 }}>auto-calculated</div>
-            </div>
-          </div>
-
-          {/* Status checkboxes */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px 16px", marginBottom: 16 }}>
-            {[
-              { key: "m1Status",  label: "M1 Status" },
-              { key: "m2Status",  label: "M2 Status" },
-              { key: "empowerF1", label: "Empower F1" },
-              { key: "empowerF2", label: "Empower F2" },
-            ].map(({ key, label }) => (
-              <div key={key}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={!!financeData[key]}
-                    onChange={e => setFinanceData(p => ({ ...p, [key]: e.target.checked }))}
-                    style={{ width: 15, height: 15 }}
-                  />
-                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{financeData[key] ? "Yes" : "No"}</span>
-                </label>
+      <Section title="Status History" icon={Users}>
+        {history.length === 0 ? (
+          <EmptyState message="No status history yet." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {history.map((item) => (
+              <div key={item.id} style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span className="badge badge-slate">{item.eventType}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                      {item.fromStatus ? `${item.fromStatus} → ` : ""}{item.toStatus}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{formatDate(item.changedAt)}</div>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  {item.changedByName || "System"}{item.note ? ` · ${item.note}` : ""}
+                </div>
               </div>
             ))}
           </div>
-
-          {/* Save button */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={saveFinance} style={{ padding: "7px 18px", borderRadius: "var(--radius-md)", border: "none", background: "var(--text-primary)", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-body)" }}>
-              Save finances
-            </button>
-            {financeSaved && <span style={{ fontSize: 12, color: "var(--green)", display: "flex", alignItems: "center", gap: 4 }}><Check size={12} /> Saved</span>}
-          </div>
-        </div>
-      )}
-
-      {/* ── Section 4: Homeowner ─────────────────────────────────────────── */}
-      <div style={{ marginBottom: 12 }}>
-        {/* Homeowner */}
-        <div className="card" style={{ padding: "16px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-            <User size={14} style={{ color: "var(--text-secondary)" }} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Homeowner</span>
-          </div>
-          {editing ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px" }}>
-              <div style={{ gridColumn: "span 2" }}><EditField label="Name" name="customer" value={job.customer} onChange={handleChange} /></div>
-              <EditField label="Phone" name="phone" value={job.phone} onChange={handleChange} type="tel" />
-              <div style={{ gridColumn: "span 2" }}><EditField label="Email" name="email" value={job.email} onChange={handleChange} type="email" /></div>
-              <div style={{ gridColumn: "span 2" }}><EditField label="Street" name="street" value={job.street} onChange={handleChange} /></div>
-              <EditField label="City" name="city" value={job.city} onChange={handleChange} />
-              <EditField label="State" name="state" value={job.state} onChange={handleChange} />
-              <EditField label="Zip" name="zip" value={job.zip} onChange={handleChange} />
-              <EditField label="HOA" name="hoa" value={job.hoa} onChange={handleChange} type="checkbox" />
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 1fr", gap: 10 }}>
-              <Field label="Address" value={[job.street, job.city, job.state, job.zip].filter(Boolean).join(", ")} />
-              <Field label="Phone" value={job.phone ? <a href={`tel:${job.phone}`} style={{ color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}><Phone size={11} />{job.phone}</a> : null} />
-              <Field label="Email" value={job.email ? <a href={`mailto:${job.email}`} style={{ color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}><Mail size={11} />{job.email}</a> : null} />
-              <Field label="HOA" value={job.hoa ? "Yes" : "No"} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Section 5: System ────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card" style={{ padding: "16px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-            <Zap size={14} style={{ color: "var(--text-secondary)" }} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>System</span>
-          </div>
-          {editing ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 16px" }}>
-              <EditField label="Module" name="module" value={job.module} onChange={handleChange} />
-              <EditField label="QTY" name="qty" value={job.qty} onChange={handleChange} type="number" />
-              <EditField label="Watt / panel" name="watt" value={job.watt} onChange={handleChange} type="number" />
-              <EditField label="Inverter" name="inverter" value={job.inverter} onChange={handleChange} options={INVERTERS} />
-              <EditField label="System size (kW)" name="systemSize" value={job.systemSize} onChange={handleChange} />
-              <EditField label="Battery" name="battery" value={job.battery} onChange={handleChange} type="checkbox" />
-              <EditField label="Roof type" name="roofType" value={job.roofType} onChange={handleChange} options={ROOF_TYPES} />
-              <EditField label="Arrays" name="arrayCount" value={job.arrayCount} onChange={handleChange} type="number" />
-              <EditField label="Deal" name="deal" value={job.deal} onChange={handleChange} options={DEALS} />
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <Field label="Module" value={job.module || null} />
-              <Field label="QTY" value={job.qty || null} />
-              <Field label="Watt / panel" value={job.watt ? `${job.watt}W` : null} />
-              <Field label="Inverter" value={job.inverter || null} />
-              <Field label="System size" value={job.systemSize ? `${job.systemSize} kW` : null} />
-              <Field label="Battery" value={job.battery ? "Yes" : "No"} />
-              <Field label="Roof type" value={job.roofType || null} />
-              <Field label="Arrays" value={job.arrayCount || null} />
-              <Field label="Deal" value={job.deal || null} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Section 6: Additional Details ──────────────────────────── */}
-      <div className="card" style={{ padding: "18px 20px", marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Additional Details</div>
-        {editing ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px 20px" }}>
-            <EditField label="Monitoring" name="monitoring" value={job.monitoring} onChange={handleChange} options={MONITORING_STATUSES} />
-            <EditField label="Monitoring Alerts" name="monitoringAlerts" value={job.monitoringAlerts} onChange={handleChange} type="number" />
-            <EditField label="Lifetime Production" name="lifetimeProduction" value={job.lifetimeProduction} onChange={handleChange} />
-            <EditField label="Build Partner" name="buildPartner" value={job.buildPartner} onChange={handleChange} />
-            <EditField label="Age (D)" name="ageD" value={job.ageD} onChange={handleChange} type="number" />
-            <EditField label="Contract Signed" name="contractSigned" value={job.contractSigned} onChange={handleChange} type="date" />
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            <Field label="Monitoring" value={job.monitoring || null} />
-            <Field label="Monitoring Alerts" value={job.monitoringAlerts ?? "—"} />
-            <Field label="Lifetime Production" value={job.lifetimeProduction || null} />
-            <Field label="Build Partner" value={job.buildPartner || null} />
-            <Field label="Age (D)" value={job.ageD ? `${job.ageD} days` : null} />
-            <Field label="Contract Signed" value={job.contractSigned ? new Date(job.contractSigned).toLocaleDateString() : null} />
-          </div>
         )}
-      </div>
+      </Section>
 
-      {/* Also show project/ops fields in edit mode */}
-      {editing && (
-        <div className="card" style={{ padding: "16px 20px", marginBottom: 12 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Project details</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px 20px" }}>
-            <EditField label="Status" name="status" value={job.status} onChange={handleChange} options={STATUSES} />
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>Stage</div>
-              <select name="stage" value={job.stage || displayStage} onChange={handleChange} style={{ width: "100%" }}>
-                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginTop: 3 }}>Auto-set · override manually if needed</div>
-            </div>
-            <EditField label="Rep" name="rep" value={job.rep} onChange={handleChange} options={REPS} />
-            <EditField label="Financer" name="financer" value={job.financer} onChange={handleChange} options={FINANCERS} />
-            <EditField label="Contractor" name="contractor" value={job.contractor} onChange={handleChange} options={CONTRACTORS} />
-            <EditField label="Partner" name="partner" value={job.partner} onChange={handleChange} />
-            <EditField label="Utility company" name="utilityCompany" value={job.utilityCompany} onChange={handleChange} />
-            <EditField label="Permit status" name="permitStatus" value={job.permitStatus} onChange={handleChange} options={PERMIT_STATUSES} />
-            <EditField label="Interconnection" name="interconnectionStatus" value={job.interconnectionStatus} onChange={handleChange} options={INTERCONNECTION_STATUSES} />
-            <div style={{ gridColumn: "span 4" }}><EditField label="Next action" name="nextAction" value={job.nextAction} onChange={handleChange} /></div>
-          </div>
+      <Section
+        title="Notes"
+        action={<span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>Editing will move to normalized write endpoints next</span>}
+      >
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>
+          {job.notes || "No notes on this job."}
         </div>
-      )}
-
-      {/* ── Section 5: Notes ────────────────────────────────────────────── */}
-      <div className="card" style={{ padding: "16px 20px" }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Notes</div>
-        <NoteEditor job={job} applyUpdate={applyUpdate} editing={editing} handleChange={handleChange} />
-      </div>
-
-      {/* Inline helper: TlRow needs access to tl/setTl */}
+        {actionState.error && <div style={{ marginTop: 12, fontSize: 12, color: "#dc2626" }}>{actionState.error}</div>}
+      </Section>
     </AppShell>
   );
-
-  function TlRow({ label, green, dateKey, crewKey, statusKey, statusOpts, onAdd, onRemove }) {
-    return (
-      <div style={{
-        display: "grid", gridTemplateColumns: "130px 1fr 1fr 110px auto", gap: 8, alignItems: "center",
-        padding: "10px 12px", borderRadius: "var(--radius-md)", marginBottom: 8,
-        background: green ? "#f0fdf4" : "var(--surface-2)",
-        border: `1px solid ${green ? "#bbf7d0" : "var(--border)"}`,
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: green ? "#15803d" : "var(--text-primary)" }}>{label}</div>
-        <input type="date" value={tl[dateKey]} onChange={e => setTl(p => ({ ...p, [dateKey]: e.target.value }))} style={{ fontSize: 12 }} />
-        <input type="text" placeholder="Crew (comma-sep)" value={tl[crewKey]} onChange={e => setTl(p => ({ ...p, [crewKey]: e.target.value }))} style={{ fontSize: 12 }} />
-        <select value={tl[statusKey]} onChange={e => setTl(p => ({ ...p, [statusKey]: e.target.value }))} style={{ fontSize: 12 }}>
-          {statusOpts.map(o => <option key={o}>{o}</option>)}
-        </select>
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: green ? "#16a34a" : "var(--text-tertiary)", fontStyle: "italic", whiteSpace: "nowrap" }}>auto-adds to schedule</span>
-          {onAdd    && <button onClick={onAdd}    title="Add Day 2" style={{ padding: "2px 6px", borderRadius: 4, border: "0.5px solid var(--border-strong)", background: "var(--surface)", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", fontFamily: "var(--font-body)" }}><Plus size={10} /></button>}
-          {onRemove && <button onClick={onRemove} title="Remove"    style={{ padding: "2px 6px", borderRadius: 4, border: "0.5px solid #fca5a5", background: "#fff5f5", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", color: "#dc2626", fontFamily: "var(--font-body)" }}><Minus size={10} /></button>}
-        </div>
-      </div>
-    );
-  }
-
 }

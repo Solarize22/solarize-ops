@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useAllJobs, jobsToService } from "@/lib/useAllJobs";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search, MapPin } from "lucide-react";
 
@@ -10,11 +9,20 @@ const URGENCIES = ["All", "High", "Medium", "Low"];
 const STATUSES = ["All", "Open", "In Progress", "Scheduled", "Resolved"];
 
 export default function ServicePage() {
-  const allJobs = useAllJobs();
-  const serviceItems = useMemo(() => jobsToService(allJobs), [allJobs]);
+  const [serviceItems, setServiceItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/v2/service")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setServiceItems(Array.isArray(data) ? data : []))
+      .catch(() => setServiceItems([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     return serviceItems.filter(item => {
@@ -24,7 +32,7 @@ export default function ServicePage() {
       const matchStatus = statusFilter === "All" || item.status === statusFilter;
       return matchSearch && matchUrgency && matchStatus;
     });
-  }, [search, urgencyFilter, statusFilter]);
+  }, [serviceItems, search, urgencyFilter, statusFilter]);
 
   const open = serviceItems.filter(s => s.status === "Open").length;
   const inProgress = serviceItems.filter(s => s.status === "In Progress").length;
@@ -35,7 +43,7 @@ export default function ServicePage() {
     <AppShell>
       <div className="page-header">
         <h1>Service</h1>
-        <p>Manage troubleshooting, monitoring, CT issues, and warranty work.</p>
+        <p>Issue tracking derived from normalized jobs in hold/failure states.</p>
       </div>
 
       <div className="stat-grid">
@@ -83,14 +91,16 @@ export default function ServicePage() {
           </button>
         )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
+          {loading ? "Loading..." : `${filtered.length} ticket${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
 
-      {/* Card grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="card empty-state" style={{ gridColumn: "1 / -1" }}>No service tickets match your filters.</div>
+        )}
+        {loading && (
+          <div className="card empty-state" style={{ gridColumn: "1 / -1" }}>Loading service tickets...</div>
         )}
         {filtered.map(item => (
           <div key={item.id} className="card" style={{ padding: "16px 18px" }}>
@@ -122,7 +132,7 @@ export default function ServicePage() {
               </div>
               <div style={{ background: "var(--surface-2)", borderRadius: "var(--radius-sm)", padding: "6px 8px" }}>
                 <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Job</div>
-                <div style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}>{item.jobId}</div>
+                <div style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}>{item.jobNumber}</div>
               </div>
             </div>
 

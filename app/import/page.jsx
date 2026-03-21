@@ -350,7 +350,7 @@ export default function ImportPage() {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const res = await fetch("/api/jobs?view=imports&limit=3");
+      const res = await fetch("/api/v2/import/history");
       if (!res.ok) throw new Error("Could not load recent imports");
       const data = await res.json();
       setImportHistory(Array.isArray(data) ? data : []);
@@ -382,8 +382,8 @@ export default function ImportPage() {
       : rawRows.map((r, i) => mapToJob(r, i));
 
     // Fetch existing jobs to check for duplicates / matches
-    const existing = await fetch("/api/jobs").then(r => r.json()).catch(() => []);
-    const existingIds = new Set(Array.isArray(existing) ? existing.map(j => j.id) : []);
+    const existing = await fetch("/api/v2/jobs").then(r => r.json()).catch(() => []);
+    const existingIds = new Set(Array.isArray(existing) ? existing.map(j => j.jobNumber) : []);
 
     const rows = mapped.map(job => {
       if (mode === "import") {
@@ -425,7 +425,7 @@ export default function ImportPage() {
       const failed = skipped.map(r => ({ id: r.id, customer: r.customer, reason: r._reason }));
 
       if (mode === "import") {
-        const res  = await fetch("/api/jobs", {
+        const res  = await fetch("/api/v2/import/jobs", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({
@@ -436,7 +436,7 @@ export default function ImportPage() {
         const data = await res.json();
         succeeded  = data.added ?? payload.length;
       } else {
-        const res  = await fetch("/api/jobs", {
+        const res  = await fetch("/api/v2/import/jobs", {
           method:  "PUT",
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify(payload),
@@ -468,7 +468,7 @@ export default function ImportPage() {
 
     setDeletingBatchId(batch.id);
     try {
-      const res = await fetch(`/api/jobs?batchId=${encodeURIComponent(batch.id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/v2/import/history?batchId=${encodeURIComponent(batch.id)}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not delete import");
       await loadImportHistory();

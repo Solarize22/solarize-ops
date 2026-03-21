@@ -31,7 +31,7 @@ export async function GET(req, { params }) {
       from payments p
       left join payment_allocations pa on pa.payment_id = p.id
       left join invoices i on i.id = pa.invoice_id
-      where p.job_id = ${params.id}
+      where p.job_id = ${access.id}
       group by p.id
       order by p.received_at nulls last, p.created_at asc
     `;

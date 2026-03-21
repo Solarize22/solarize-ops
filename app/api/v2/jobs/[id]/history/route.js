@@ -18,7 +18,7 @@ export async function GET(req, { params }) {
         u.full_name as changed_by_name
       from job_status_history h
       left join app_users u on u.id = h.changed_by
-      where h.job_id = ${params.id}
+      where h.job_id = ${access.id}
       order by h.changed_at desc
     `;
 

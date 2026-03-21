@@ -15,7 +15,7 @@ export async function GET(req, { params }) {
     const rows = await ctx.sql`
       select *
       from inspections
-      where job_id = ${params.id}
+      where job_id = ${access.id}
       order by scheduled_at asc nulls last, created_at asc
     `;
 
