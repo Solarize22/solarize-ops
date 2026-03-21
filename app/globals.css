@@ -170,6 +170,17 @@ a {
   padding: 4px 10px 20px;
 }
 
+:root[data-theme="dark"] .sidebar-logo {
+  padding: 14px 16px;
+  margin: 2px 4px 18px;
+  background:
+    radial-gradient(circle at top left, rgba(240, 173, 31, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(244, 248, 253, 0.98), rgba(231, 238, 247, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 22px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;
