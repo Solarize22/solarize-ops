@@ -1,53 +1,23 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 
-const NON_INVOICE_TOKENS = new Set([
-  "paid",
-  "unpaid",
-  "complete",
-  "completed",
-  "yes",
-  "no",
-  "true",
-  "false",
-  "none",
-  "n/a",
-  "na",
-  "-"
-]);
-
-function mapStatus(status) {
-  switch ((status || "").trim()) {
-    case "Scheduled": return "scheduled";
-    case "Install Complete": return "install_completed";
-    case "Inspection Scheduled": return "inspection_scheduled";
-    case "Inspection Passed": return "inspection_passed";
-    case "Fully Paid / Closed": return "paid_in_full";
-    case "Rescheduled / Issue": return "on_hold";
-    default: return "created";
-  }
-}
-
 function dollarsToCents(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
   return Math.round(amount * 100);
 }
 
-function normalizeInvoiceNumber(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return null;
-  if (NON_INVOICE_TOKENS.has(normalized.toLowerCase())) return null;
-  return normalized;
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
-async function findRepId(sql, companyId, repName) {
-  if (!repName) return null;
+async function findUserIdByName(sql, companyId, fullName) {
+  if (!hasValue(fullName)) return null;
   const rows = await sql`
     select id
     from app_users
     where company_id = ${companyId}
-      and lower(full_name) = lower(${repName})
+      and lower(full_name) = lower(${String(fullName).trim()})
     limit 1
   `;
   return rows[0]?.id || null;
@@ -56,61 +26,192 @@ async function findRepId(sql, companyId, repName) {
 async function syncCrewAssignments(sql, jobId, companyId, crewNames = []) {
   await sql`delete from job_crew_assignments where job_id = ${jobId}`;
   for (const crewName of crewNames) {
-    const rows = await sql`
-      select id
-      from app_users
-      where company_id = ${companyId}
-        and lower(full_name) = lower(${crewName})
-      limit 1
-    `;
-    if (rows[0]?.id) {
+    const userId = await findUserIdByName(sql, companyId, crewName);
+    if (userId) {
       await sql`
         insert into job_crew_assignments (job_id, user_id, assignment_role, created_at)
-        values (${jobId}, ${rows[0].id}, 'crew', now())
+        values (${jobId}, ${userId}, 'crew', now())
+        on conflict (job_id, user_id, assignment_role) do nothing
       `;
     }
   }
 }
 
-async function upsertInvoice(sql, { companyId, jobId, financer, invoiceType, invoiceNumber, amount, paid }) {
-  const normalizedInvoiceNumber = normalizeInvoiceNumber(invoiceNumber);
-  if (!normalizedInvoiceNumber && !(Number(amount) > 0)) return;
+async function logImportEvent(sql, { jobId, actorId, note, toStatus = null, eventType = "note", relatedInvoiceId = null, relatedPaymentId = null }) {
+  await sql`
+    insert into job_status_history (
+      job_id,
+      from_status,
+      to_status,
+      event_type,
+      changed_at,
+      changed_by,
+      related_invoice_id,
+      related_payment_id,
+      note
+    )
+    values (
+      ${jobId},
+      null,
+      ${toStatus || "created"}::job_status,
+      ${eventType}::status_event_type,
+      now(),
+      ${actorId || null},
+      ${relatedInvoiceId},
+      ${relatedPaymentId},
+      ${note}
+    )
+  `;
+}
+
+async function syncInspectionFromImport(sql, { jobId, completedAt, actorId }) {
+  if (!hasValue(completedAt)) return;
+
+  const existingRows = await sql`
+    select id
+    from inspections
+    where job_id = ${jobId}
+      and inspection_type = 'final'::inspection_type
+    order by created_at asc
+    limit 1
+  `;
+
+  let inspectionId = existingRows[0]?.id || null;
+  if (inspectionId) {
+    await sql`
+      update inspections
+      set
+        completed_at = ${completedAt}::timestamptz,
+        result = 'passed'::inspection_result,
+        updated_at = now()
+      where id = ${inspectionId}
+    `;
+  } else {
+    const inserted = await sql`
+      insert into inspections (
+        job_id,
+        inspection_type,
+        completed_at,
+        result,
+        notes,
+        created_at,
+        updated_at
+      )
+      values (
+        ${jobId},
+        'final'::inspection_type,
+        ${completedAt}::timestamptz,
+        'passed'::inspection_result,
+        'Imported inspection result',
+        now(),
+        now()
+      )
+      returning id
+    `;
+    inspectionId = inserted[0].id;
+  }
+
+  await logImportEvent(sql, {
+    jobId,
+    actorId,
+    toStatus: "inspection_passed",
+    eventType: "inspection_passed",
+    note: "Imported inspection result",
+  });
+}
+
+async function upsertInvoiceFromImport(sql, {
+  companyId,
+  jobId,
+  financer,
+  invoiceType,
+  invoiceNumber,
+  amount,
+  paid,
+  applyNumber,
+  applyAmount,
+  applyPaid,
+  actorId,
+}) {
+  const shouldTouchInvoice = applyNumber || applyAmount || applyPaid;
+  if (!shouldTouchInvoice) return null;
 
   const totalCents = dollarsToCents(amount);
-  const number = normalizedInvoiceNumber || `IMP-${invoiceType.toUpperCase()}-${jobId}`;
-  const existing = await sql`
-    select id
+  const existingRows = await sql`
+    select *
     from invoices
     where job_id = ${jobId}
       and invoice_type = ${invoiceType}::invoice_type
     limit 1
   `;
+  const existing = existingRows[0] || null;
 
-  let invoiceId;
-  if (existing.length) {
-    invoiceId = existing[0].id;
+  if (!existing && !applyNumber && !applyAmount && applyPaid) {
+    throw new Error(`${invoiceType.toUpperCase()} paid flag cannot be imported without an invoice amount or number`);
+  }
+
+  const nextInvoiceNumber =
+    (applyNumber && hasValue(invoiceNumber) ? String(invoiceNumber).trim() : existing?.invoice_number) ||
+    `IMP-${invoiceType.toUpperCase()}-${jobId}`;
+
+  const nextTotalCents =
+    applyAmount ? totalCents : (existing?.total_cents ?? 0);
+
+  if (!existing && nextTotalCents <= 0) {
+    return null;
+  }
+
+  const nextFinancer = hasValue(financer) ? financer : (existing?.financer || null);
+  const nextBalanceCents = applyPaid
+    ? (paid ? 0 : nextTotalCents)
+    : (existing?.balance_cents ?? nextTotalCents);
+  const nextStatus = applyPaid
+    ? (paid ? "paid" : "issued")
+    : (existing?.status || "issued");
+
+  let invoiceId = existing?.id || null;
+  if (existing) {
     await sql`
       update invoices
       set
-        invoice_number = ${number},
-        total_cents = ${totalCents},
-        subtotal_cents = ${totalCents},
-        balance_cents = ${paid ? 0 : totalCents},
-        status = ${paid ? "paid" : "issued"}::invoice_status,
-        financer = ${financer || null},
+        invoice_number = ${nextInvoiceNumber},
+        subtotal_cents = ${nextTotalCents},
+        total_cents = ${nextTotalCents},
+        balance_cents = ${nextBalanceCents},
+        status = ${nextStatus}::invoice_status,
+        financer = ${nextFinancer},
         updated_at = now()
-      where id = ${invoiceId}
+      where id = ${existing.id}
     `;
-    await sql`delete from invoice_line_items where invoice_id = ${invoiceId}`;
+    await sql`delete from invoice_line_items where invoice_id = ${existing.id}`;
+    invoiceId = existing.id;
   } else {
     const inserted = await sql`
       insert into invoices (
-        company_id, job_id, invoice_number, invoice_type, status,
-        subtotal_cents, total_cents, balance_cents, financer, created_at, updated_at
+        company_id,
+        job_id,
+        invoice_number,
+        invoice_type,
+        status,
+        subtotal_cents,
+        total_cents,
+        balance_cents,
+        financer,
+        created_at,
+        updated_at
       )
       values (
-        ${companyId}, ${jobId}, ${number}, ${invoiceType}::invoice_type, ${paid ? "paid" : "issued"}::invoice_status,
-        ${totalCents}, ${totalCents}, ${paid ? 0 : totalCents}, ${financer || null}, now(), now()
+        ${companyId},
+        ${jobId},
+        ${nextInvoiceNumber},
+        ${invoiceType}::invoice_type,
+        ${nextStatus}::invoice_status,
+        ${nextTotalCents},
+        ${nextTotalCents},
+        ${nextBalanceCents},
+        ${nextFinancer},
+        now(),
+        now()
       )
       returning id
     `;
@@ -118,12 +219,26 @@ async function upsertInvoice(sql, { companyId, jobId, financer, invoiceType, inv
   }
 
   await sql`
-    insert into invoice_line_items (invoice_id, line_type, description, amount_cents, sort_order, created_at)
-    values (${invoiceId}, ${invoiceType}::invoice_type, ${invoiceType.toUpperCase()}, ${totalCents}, 1, now())
+    insert into invoice_line_items (
+      invoice_id,
+      line_type,
+      description,
+      amount_cents,
+      sort_order,
+      created_at
+    )
+    values (
+      ${invoiceId},
+      ${invoiceType}::invoice_type,
+      ${invoiceType === "adder" ? "Adder" : invoiceType.toUpperCase()},
+      ${nextTotalCents},
+      1,
+      now()
+    )
   `;
 
-  if (paid && totalCents > 0) {
-    const existingPayment = await sql`
+  if (applyPaid && paid && nextTotalCents > 0) {
+    const paymentRows = await sql`
       select p.id
       from payments p
       join payment_allocations pa on pa.payment_id = p.id
@@ -131,29 +246,67 @@ async function upsertInvoice(sql, { companyId, jobId, financer, invoiceType, inv
         and pa.invoice_id = ${invoiceId}
       limit 1
     `;
-    if (!existingPayment.length) {
+
+    if (!paymentRows.length) {
       const payment = await sql`
         insert into payments (
-          company_id, job_id, payment_reference, payment_method, status, amount_cents, source_name, notes, created_at, updated_at
+          company_id,
+          job_id,
+          payment_reference,
+          payment_method,
+          status,
+          amount_cents,
+          source_name,
+          notes,
+          created_at,
+          updated_at
         )
         values (
-          ${companyId}, ${jobId}, ${`IMPORT-${invoiceType.toUpperCase()}-${number}`}, 'other'::payment_method, 'settled'::payment_status,
-          ${totalCents}, ${financer || "import"}, 'Imported paid flag', now(), now()
+          ${companyId},
+          ${jobId},
+          ${`IMPORT-${invoiceType.toUpperCase()}-${nextInvoiceNumber}`},
+          'other'::payment_method,
+          'settled'::payment_status,
+          ${nextTotalCents},
+          ${nextFinancer || "import"},
+          'Imported paid flag',
+          now(),
+          now()
         )
         returning id
       `;
+
       await sql`
         insert into payment_allocations (payment_id, invoice_id, allocated_cents, created_at)
-        values (${payment[0].id}, ${invoiceId}, ${totalCents}, now())
+        values (${payment[0].id}, ${invoiceId}, ${nextTotalCents}, now())
       `;
+
+      await logImportEvent(sql, {
+        jobId,
+        actorId,
+        relatedInvoiceId: invoiceId,
+        relatedPaymentId: payment[0].id,
+        eventType: "payment_received",
+        note: `Imported ${invoiceType.toUpperCase()} payment`,
+      });
     }
   }
+
+  await logImportEvent(sql, {
+    jobId,
+    actorId,
+    relatedInvoiceId: invoiceId,
+    eventType: "invoice_created",
+    note: existing ? `Imported updates to ${invoiceType.toUpperCase()} invoice` : `Imported ${invoiceType.toUpperCase()} invoice`,
+  });
+
+  return invoiceId;
 }
 
-async function createJob(sql, companyId, job) {
+async function createJob(sql, companyId, draft, actorId) {
   await sql`begin`;
   try {
-    const repId = await findRepId(sql, companyId, job.rep);
+    const repId = await findUserIdByName(sql, companyId, draft.job.rep);
     const inserted = await sql`
       insert into jobs (
         company_id,
@@ -165,6 +318,7 @@ async function createJob(sql, companyId, job) {
         city,
         state,
         postal_code,
+        county,
         contract_type,
         financer,
         contractor,
@@ -191,135 +345,244 @@ async function createJob(sql, companyId, job) {
       )
       values (
         ${companyId},
-        ${job.id},
-        ${job.customer || "Unknown Customer"},
-        ${job.phone || null},
-        ${job.email || null},
-        ${job.street || "Unknown Address"},
-        ${job.city || "Unknown City"},
-        ${job.state || "NA"},
-        ${job.zip || null},
-        ${job.deal || null},
-        ${job.financer || null},
-        ${job.contractor || null},
-        ${job.partner || null},
-        ${job.utilityCompany || null},
+        ${draft.jobNumber},
+        ${draft.customerName || "Unknown Customer"},
+        ${draft.phone || null},
+        ${draft.email || null},
+        ${draft.address.street1 || "Unknown Address"},
+        ${draft.address.city || "Unknown City"},
+        ${draft.address.state || "NA"},
+        ${draft.address.postalCode || null},
+        ${draft.address.county || null},
+        ${draft.job.contractType || null},
+        ${draft.job.financer || null},
+        ${draft.job.contractor || null},
+        ${draft.job.partner || null},
+        ${draft.job.utilityCompany || null},
         ${repId},
-        ${job.systemSize || null}::numeric,
-        ${job.panelCount || null}::integer,
-        ${job.watt || null}::integer,
-        ${job.inverter || null},
-        ${job.module || null},
-        ${!!job.battery},
-        ${job.roofType || null},
-        ${job.contractSigned || null}::date,
-        ${job.siteSurveyDate || null}::date,
-        ${job.installDate || null}::date,
-        ${["Install Complete", "Inspection Scheduled", "Inspection Passed", "Fully Paid / Closed"].includes(job.status) ? (job.installDate || null) : null}::date,
-        ${job.ptoDate || null}::date,
-        ${mapStatus(job.status)}::job_status,
+        ${draft.system.systemSizeKw || null}::numeric,
+        ${draft.system.panelCount || null}::integer,
+        ${draft.system.wattPerPanel || null}::integer,
+        ${draft.system.inverter || null},
+        ${draft.system.module || null},
+        ${!!draft.system.battery},
+        ${draft.system.roofType || null},
+        ${draft.milestones.contractSignedAt || null}::date,
+        ${draft.milestones.siteSurveyAt || null}::date,
+        ${draft.milestones.installScheduledAt || null}::date,
+        ${["install_completed", "inspection_scheduled", "inspection_passed", "pto_granted", "m1_invoiced", "m1_paid", "m2_invoiced", "paid_in_full"].includes(draft.derivedStatus)
+          ? (draft.milestones.installScheduledAt || null)
+          : null}::date,
+        ${draft.milestones.ptoGrantedAt || null}::date,
+        ${draft.derivedStatus}::job_status,
         now(),
-        ${job.notes || null},
+        ${draft.job.notes || null},
         now(),
         now()
       )
       returning id
     `;
 
-    await syncCrewAssignments(sql, inserted[0].id, companyId, job.crew || []);
-    await upsertInvoice(sql, {
+    const jobId = inserted[0].id;
+    await syncCrewAssignments(sql, jobId, companyId, draft.crew || []);
+    await syncInspectionFromImport(sql, {
+      jobId,
+      completedAt: draft.milestones.inspectionCompletedAt,
+      actorId,
+    });
+
+    await upsertInvoiceFromImport(sql, {
       companyId,
-      jobId: inserted[0].id,
-      financer: job.financer,
+      jobId,
+      financer: draft.job.financer,
       invoiceType: "m1",
-      invoiceNumber: job.m1InvoiceNumber,
-      amount: job.m1Amount,
-      paid: !!job.m1Status,
+      invoiceNumber: draft.financials.m1.invoiceNumber,
+      amount: draft.financials.m1.amount,
+      paid: draft.financials.m1.paid,
+      applyNumber: draft.financials.m1.invoiceNumberProvided,
+      applyAmount: draft.financials.m1.amountProvided,
+      applyPaid: draft.financials.m1.paidProvided,
+      actorId,
     });
-    await upsertInvoice(sql, {
+
+    await upsertInvoiceFromImport(sql, {
       companyId,
-      jobId: inserted[0].id,
-      financer: job.financer,
+      jobId,
+      financer: draft.job.financer,
       invoiceType: "m2",
-      invoiceNumber: job.m2InvoiceNumber,
-      amount: job.m2Amount,
-      paid: !!job.m2Status,
+      invoiceNumber: draft.financials.m2.invoiceNumber,
+      amount: draft.financials.m2.amount,
+      paid: draft.financials.m2.paid,
+      applyNumber: draft.financials.m2.invoiceNumberProvided,
+      applyAmount: draft.financials.m2.amountProvided,
+      applyPaid: draft.financials.m2.paidProvided,
+      actorId,
     });
+
+    await upsertInvoiceFromImport(sql, {
+      companyId,
+      jobId,
+      financer: draft.job.financer,
+      invoiceType: "adder",
+      invoiceNumber: null,
+      amount: draft.financials.adder.amount,
+      paid: false,
+      applyNumber: false,
+      applyAmount: draft.financials.adder.amountProvided,
+      applyPaid: false,
+      actorId,
+    });
+
+    await logImportEvent(sql, {
+      jobId,
+      actorId,
+      toStatus: draft.derivedStatus,
+      eventType: "job_created",
+      note: "Imported job from CSV",
+    });
+
     await sql`commit`;
   } catch (error) {
-    await sql`rollback`;
+    try { await sql`rollback`; } catch {}
     throw error;
   }
 }
 
-async function updateJob(sql, companyId, job) {
-  const rows = await sql`
-    select id
-    from jobs
-    where company_id = ${companyId}
-      and job_number = ${job.id}
-    limit 1
-  `;
-  if (!rows.length) return false;
+async function updateJob(sql, companyId, draft, actorId) {
+  await sql`begin`;
+  try {
+    const rows = await sql`
+      select id
+      from jobs
+      where company_id = ${companyId}
+        and job_number = ${draft.jobNumber}
+      limit 1
+    `;
+    if (!rows.length) {
+      await sql`rollback`;
+      return false;
+    }
 
-  const jobId = rows[0].id;
-  const repId = await findRepId(sql, companyId, job.rep);
-  await sql`
-    update jobs
-    set
-      customer_name = coalesce(${job.customer || null}, customer_name),
-      customer_phone = coalesce(${job.phone || null}, customer_phone),
-      customer_email = coalesce(${job.email || null}, customer_email),
-      street_1 = coalesce(${job.street || null}, street_1),
-      city = coalesce(${job.city || null}, city),
-      state = coalesce(${job.state || null}, state),
-      postal_code = coalesce(${job.zip || null}, postal_code),
-      contract_type = coalesce(${job.deal || null}, contract_type),
-      financer = coalesce(${job.financer || null}, financer),
-      contractor = coalesce(${job.contractor || null}, contractor),
-      partner = coalesce(${job.partner || null}, partner),
-      utility_company = coalesce(${job.utilityCompany || null}, utility_company),
-      rep_user_id = coalesce(${repId}, rep_user_id),
-      system_size_kw = coalesce(${job.systemSize || null}::numeric, system_size_kw),
-      panel_count = coalesce(${job.panelCount || null}::integer, panel_count),
-      watt_per_panel = coalesce(${job.watt || null}::integer, watt_per_panel),
-      inverter = coalesce(${job.inverter || null}, inverter),
-      module = coalesce(${job.module || null}, module),
-      battery = coalesce(${job.battery ?? null}::boolean, battery),
-      roof_type = coalesce(${job.roofType || null}, roof_type),
-      contract_signed_at = coalesce(${job.contractSigned || null}::date, contract_signed_at),
-      site_survey_at = coalesce(${job.siteSurveyDate || null}::date, site_survey_at),
-      install_scheduled_at = coalesce(${job.installDate || null}::date, install_scheduled_at),
-      install_completed_at = coalesce(${["Install Complete", "Inspection Scheduled", "Inspection Passed", "Fully Paid / Closed"].includes(job.status) ? (job.installDate || null) : null}::date, install_completed_at),
-      pto_granted_at = coalesce(${job.ptoDate || null}::date, pto_granted_at),
-      current_status = coalesce(${job.status ? mapStatus(job.status) : null}::job_status, current_status),
-      notes = coalesce(${job.notes || null}, notes),
-      updated_at = now()
-    where id = ${jobId}
-  `;
+    const jobId = rows[0].id;
+    const repId = draft.provided.rep ? await findUserIdByName(sql, companyId, draft.job.rep) : null;
+    const shouldApplyDerivedStatus =
+      draft.provided.status ||
+      draft.provided.installScheduledAt ||
+      draft.provided.inspectionCompletedAt ||
+      draft.provided.ptoGrantedAt ||
+      draft.financials.m1.provided ||
+      draft.financials.m2.provided;
 
-  if (Array.isArray(job.crew)) {
-    await syncCrewAssignments(sql, jobId, companyId, job.crew);
+    await sql`
+      update jobs
+      set
+        customer_name = coalesce(${draft.provided.customerName ? (draft.customerName || null) : null}, customer_name),
+        customer_phone = coalesce(${draft.provided.phone ? (draft.phone || null) : null}, customer_phone),
+        customer_email = coalesce(${draft.provided.email ? (draft.email || null) : null}, customer_email),
+        street_1 = coalesce(${draft.provided.street ? (draft.address.street1 || null) : null}, street_1),
+        city = coalesce(${draft.provided.city ? (draft.address.city || null) : null}, city),
+        state = coalesce(${draft.provided.state ? (draft.address.state || null) : null}, state),
+        postal_code = coalesce(${draft.provided.postalCode ? (draft.address.postalCode || null) : null}, postal_code),
+        county = coalesce(${draft.provided.county ? (draft.address.county || null) : null}, county),
+        contract_type = coalesce(${draft.provided.contractType ? (draft.job.contractType || null) : null}, contract_type),
+        financer = coalesce(${draft.provided.financer ? (draft.job.financer || null) : null}, financer),
+        contractor = coalesce(${draft.provided.contractor ? (draft.job.contractor || null) : null}, contractor),
+        partner = coalesce(${draft.provided.partner ? (draft.job.partner || null) : null}, partner),
+        utility_company = coalesce(${draft.provided.utilityCompany ? (draft.job.utilityCompany || null) : null}, utility_company),
+        rep_user_id = coalesce(${draft.provided.rep ? repId : null}, rep_user_id),
+        system_size_kw = coalesce(${draft.provided.systemSizeKw ? (draft.system.systemSizeKw || null) : null}::numeric, system_size_kw),
+        panel_count = coalesce(${draft.provided.panelCount ? (draft.system.panelCount || null) : null}::integer, panel_count),
+        watt_per_panel = coalesce(${draft.provided.wattPerPanel ? (draft.system.wattPerPanel || null) : null}::integer, watt_per_panel),
+        inverter = coalesce(${draft.provided.inverter ? (draft.system.inverter || null) : null}, inverter),
+        module = coalesce(${draft.provided.module ? (draft.system.module || null) : null}, module),
+        battery = coalesce(${draft.provided.battery ? draft.system.battery : null}::boolean, battery),
+        roof_type = coalesce(${draft.provided.roofType ? (draft.system.roofType || null) : null}, roof_type),
+        contract_signed_at = coalesce(${draft.provided.contractSignedAt ? (draft.milestones.contractSignedAt || null) : null}::date, contract_signed_at),
+        site_survey_at = coalesce(${draft.provided.siteSurveyAt ? (draft.milestones.siteSurveyAt || null) : null}::date, site_survey_at),
+        install_scheduled_at = coalesce(${draft.provided.installScheduledAt ? (draft.milestones.installScheduledAt || null) : null}::date, install_scheduled_at),
+        pto_granted_at = coalesce(${draft.provided.ptoGrantedAt ? (draft.milestones.ptoGrantedAt || null) : null}::date, pto_granted_at),
+        current_status = coalesce(${shouldApplyDerivedStatus ? draft.derivedStatus : null}::job_status, current_status),
+        notes = coalesce(${draft.provided.notes ? (draft.job.notes || null) : null}, notes),
+        updated_at = now()
+      where id = ${jobId}
+    `;
+
+    if (
+      draft.provided.installScheduledAt ||
+      draft.provided.status ||
+      draft.provided.ptoGrantedAt ||
+      draft.provided.siteSurveyAt ||
+      draft.provided.contractSignedAt ||
+      draft.provided.inspectionCompletedAt
+    ) {
+      await logImportEvent(sql, {
+        jobId,
+        actorId,
+        toStatus: shouldApplyDerivedStatus ? draft.derivedStatus : null,
+        eventType: "note",
+        note: "Imported updates from CSV",
+      });
+    }
+
+    if (draft.provided.crew) {
+      await syncCrewAssignments(sql, jobId, companyId, draft.crew || []);
+    }
+    if (draft.provided.inspectionCompletedAt) {
+      await syncInspectionFromImport(sql, {
+        jobId,
+        completedAt: draft.milestones.inspectionCompletedAt,
+        actorId,
+      });
+    }
+
+    await upsertInvoiceFromImport(sql, {
+      companyId,
+      jobId,
+      financer: draft.job.financer,
+      invoiceType: "m1",
+      invoiceNumber: draft.financials.m1.invoiceNumber,
+      amount: draft.financials.m1.amount,
+      paid: draft.financials.m1.paid,
+      applyNumber: draft.financials.m1.invoiceNumberProvided,
+      applyAmount: draft.financials.m1.amountProvided,
+      applyPaid: draft.financials.m1.paidProvided,
+      actorId,
+    });
+
+    await upsertInvoiceFromImport(sql, {
+      companyId,
+      jobId,
+      financer: draft.job.financer,
+      invoiceType: "m2",
+      invoiceNumber: draft.financials.m2.invoiceNumber,
+      amount: draft.financials.m2.amount,
+      paid: draft.financials.m2.paid,
+      applyNumber: draft.financials.m2.invoiceNumberProvided,
+      applyAmount: draft.financials.m2.amountProvided,
+      applyPaid: draft.financials.m2.paidProvided,
+      actorId,
+    });
+
+    await upsertInvoiceFromImport(sql, {
+      companyId,
+      jobId,
+      financer: draft.job.financer,
+      invoiceType: "adder",
+      invoiceNumber: null,
+      amount: draft.financials.adder.amount,
+      paid: false,
+      applyNumber: false,
+      applyAmount: draft.financials.adder.amountProvided,
+      applyPaid: false,
+      actorId,
+    });
+
+    await sql`commit`;
+    return true;
+  } catch (error) {
+    try { await sql`rollback`; } catch {}
+    throw error;
   }
-  await upsertInvoice(sql, {
-    companyId,
-    jobId,
-    financer: job.financer,
-    invoiceType: "m1",
-    invoiceNumber: job.m1InvoiceNumber,
-    amount: job.m1Amount,
-    paid: !!job.m1Status,
-  });
-  await upsertInvoice(sql, {
-    companyId,
-    jobId,
-    financer: job.financer,
-    invoiceType: "m2",
-    invoiceNumber: job.m2InvoiceNumber,
-    amount: job.m2Amount,
-    paid: !!job.m2Status,
-  });
-  return true;
 }
 
 export async function POST(req) {
@@ -338,27 +601,28 @@ export async function POST(req) {
 
   const body = await req.json();
   const jobs = Array.isArray(body?.jobs) ? body.jobs : [];
-  if (!jobs.length) return NextResponse.json({ added: 0, total: 0 });
+  if (!jobs.length) return NextResponse.json({ added: 0, total: 0, failed: [] });
 
   let added = 0;
   const failed = [];
-  for (const job of jobs) {
+
+  for (const draft of jobs) {
     try {
       const exists = await ctx.sql`
         select 1
         from jobs
         where company_id = ${company.id}
-          and job_number = ${job.id}
+          and job_number = ${draft.jobNumber}
         limit 1
       `;
       if (exists.length) {
-        failed.push({ id: job.id, reason: "Job number already exists" });
+        failed.push({ id: draft.jobNumber, customer: draft.customerName, reason: "Job number already exists" });
         continue;
       }
-      await createJob(ctx.sql, company.id, job);
+      await createJob(ctx.sql, company.id, draft, ctx.appUser?.id);
       added++;
     } catch (error) {
-      failed.push({ id: job.id, reason: error.message || "Import failed" });
+      failed.push({ id: draft.jobNumber, customer: draft.customerName, reason: error.message || "Import failed" });
     }
   }
 
@@ -381,20 +645,22 @@ export async function PUT(req) {
 
   const jobs = await req.json();
   if (!Array.isArray(jobs) || !jobs.length) {
-    return NextResponse.json({ updated: 0, total: 0, notFound: [] });
+    return NextResponse.json({ updated: 0, total: 0, failed: [], notFound: [] });
   }
 
   let updated = 0;
+  const failed = [];
   const notFound = [];
-  for (const job of jobs) {
+
+  for (const draft of jobs) {
     try {
-      const ok = await updateJob(ctx.sql, company.id, job);
-      if (!ok) notFound.push(job.id);
+      const ok = await updateJob(ctx.sql, company.id, draft, ctx.appUser?.id);
+      if (!ok) notFound.push(draft.jobNumber);
       else updated++;
-    } catch {
-      notFound.push(job.id);
+    } catch (error) {
+      failed.push({ id: draft.jobNumber, customer: draft.customerName, reason: error.message || "Update failed" });
     }
   }
 
-  return NextResponse.json({ updated, total: jobs.length, notFound });
+  return NextResponse.json({ updated, total: jobs.length, failed, notFound });
 }

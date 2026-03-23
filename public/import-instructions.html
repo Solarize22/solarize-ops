@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solarize CRM Import Instructions</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 32px;
+      font-family: Arial, sans-serif;
+      color: #102136;
+      background: #f4f7fb;
+      line-height: 1.5;
+    }
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 18px 40px rgba(16, 33, 54, 0.08);
+    }
+    h1, h2, h3 {
+      margin-top: 0;
+      color: #102136;
+    }
+    h1 {
+      font-size: 30px;
+      margin-bottom: 6px;
+    }
+    h2 {
+      font-size: 20px;
+      margin-top: 28px;
+      margin-bottom: 12px;
+    }
+    p, li {
+      font-size: 14px;
+    }
+    ul, ol {
+      margin-top: 8px;
+    }
+    code {
+      background: #eef3f8;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #d8e1ec;
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+      font-size: 13px;
+    }
+    th {
+      background: #eef3f8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .note {
+      background: #fff6dc;
+      border: 1px solid #f0d48c;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 16px 0;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #e8eef6;
+      font-weight: 700;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .page {
+        box-shadow: none;
+        border-radius: 0;
+        max-width: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Solarize CRM Import Instructions</h1>
+    <p>This guide explains exactly how the CSV import works, what each column means, and how values are interpreted by the CRM.</p>
+
+    <div class="note">
+      <strong>Important:</strong> The importer creates and updates real CRM records.
+      <br />
+      Jobs go into the <code>jobs</code> table.
+      Milestone dates update the job timeline.
+      M1, M2, and adders create invoice records.
+      Paid flags can create payment records.
+    </div>
+
+    <h2>Quick Rules</h2>
+    <ol>
+      <li>Keep the header row exactly the same as the template.</li>
+      <li>Use one job per row.</li>
+      <li>For new imports, include <code>job_id</code>, <code>customer</code>, and either <code>street</code> or <code>city</code>.</li>
+      <li>For update imports, <code>job_id</code> is required and blank cells do not overwrite existing values.</li>
+      <li>Use dates like <code>03/21/2026</code> or <code>2026-03-21</code>.</li>
+      <li>Use <code>Yes</code> or <code>No</code> for payment flags and battery.</li>
+    </ol>
+
+    <h2>Status Options</h2>
+    <p>Use these exact values in the <code>status</code> column when you want to explicitly set status from the CSV.</p>
+    <ul>
+      <li><span class="status">scheduled</span> Job exists but install is not complete yet.</li>
+      <li><span class="status">install_completed</span> Install is done and the job is ready to move forward.</li>
+      <li><span class="status">inspection_scheduled</span> Inspection has been arranged but not passed yet.</li>
+      <li><span class="status">inspection_passed</span> Inspection is complete and approved.</li>
+      <li><span class="status">pto_granted</span> Utility has granted PTO.</li>
+      <li><span class="status">m1_invoiced</span> M1 invoice exists but is not fully paid.</li>
+      <li><span class="status">m1_paid</span> M1 invoice has been fully paid.</li>
+      <li><span class="status">m2_invoiced</span> M2 invoice exists but is not fully paid.</li>
+      <li><span class="status">paid_in_full</span> All invoices are paid.</li>
+      <li><span class="status">on_hold</span> Job has an issue and needs manual ops attention.</li>
+    </ul>
+
+    <div class="note">
+      <strong>How status really works:</strong> If the CSV also includes stronger evidence like PTO date, paid M2, or invoice/payment data, the importer may derive the final CRM status from that evidence instead of a vague status word like <code>complete</code>.
+    </div>
+
+    <h2>Financial Flag Behavior</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Column</th>
+          <th>Expected format</th>
+          <th>What the importer does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>m1_invoice_number</code></td>
+          <td>Invoice number like <code>INV-1201</code></td>
+          <td>Creates or updates the M1 invoice record.</td>
+        </tr>
+        <tr>
+          <td><code>m1_amount</code></td>
+          <td>Dollar amount like <code>9302</code> or <code>9302.00</code></td>
+          <td>Sets the M1 invoice total.</td>
+        </tr>
+        <tr>
+          <td><code>m1_status</code></td>
+          <td><code>Yes</code> or <code>No</code></td>
+          <td><code>Yes</code> records a payment for the full M1 amount. <code>No</code> or blank does not create a payment.</td>
+        </tr>
+        <tr>
+          <td><code>m2_invoice_number</code></td>
+          <td>Invoice number like <code>INV-1202</code></td>
+          <td>Creates or updates the M2 invoice record.</td>
+        </tr>
+        <tr>
+          <td><code>m2_amount</code></td>
+          <td>Dollar amount like <code>2326</code> or <code>2326.00</code></td>
+          <td>Sets the M2 invoice total.</td>
+        </tr>
+        <tr>
+          <td><code>m2_status</code></td>
+          <td><code>Yes</code> or <code>No</code></td>
+          <td><code>Yes</code> records a payment for the full M2 amount. <code>No</code> or blank does not create a payment.</td>
+        </tr>
+        <tr>
+          <td><code>adders</code></td>
+          <td>Dollar amount like <code>500</code></td>
+          <td>If greater than zero, creates an adder invoice.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Column-by-Column Guide</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Column</th>
+          <th>Required</th>
+          <th>Format</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>job_id</code></td><td>Yes</td><td>Text or number</td><td>Your business job number. Must be unique for new imports.</td></tr>
+        <tr><td><code>customer</code></td><td>Yes for new import</td><td>Text</td><td>Homeowner name.</td></tr>
+        <tr><td><code>phone</code></td><td>No</td><td>Text</td><td>Customer phone number.</td></tr>
+        <tr><td><code>email</code></td><td>No</td><td>Email text</td><td>Customer email address.</td></tr>
+        <tr><td><code>street</code></td><td>Yes for new import</td><td>Text</td><td>Street address.</td></tr>
+        <tr><td><code>city</code></td><td>Recommended</td><td>Text</td><td>City.</td></tr>
+        <tr><td><code>state</code></td><td>Recommended</td><td>CT, MA, NY, etc.</td><td>State abbreviation or full state name.</td></tr>
+        <tr><td><code>zip</code></td><td>No</td><td>Zip code</td><td>Postal code.</td></tr>
+        <tr><td><code>county</code></td><td>No</td><td>Text</td><td>County for permitting or utility context.</td></tr>
+        <tr><td><code>system_size_kw</code></td><td>No</td><td>Number</td><td>System size in kW.</td></tr>
+        <tr><td><code>panel_count</code></td><td>No</td><td>Whole number</td><td>Total panel count.</td></tr>
+        <tr><td><code>watt_per_panel</code></td><td>No</td><td>Whole number</td><td>Panel wattage.</td></tr>
+        <tr><td><code>inverter</code></td><td>No</td><td>Text</td><td>Inverter type.</td></tr>
+        <tr><td><code>battery</code></td><td>No</td><td><code>Yes</code> or <code>No</code></td><td>Whether the job includes battery.</td></tr>
+        <tr><td><code>roof_type</code></td><td>No</td><td>Text</td><td>Roof material/type.</td></tr>
+        <tr><td><code>rep</code></td><td>No</td><td>Full name</td><td>Sales rep name. Must match an app user name to link automatically.</td></tr>
+        <tr><td><code>financer</code></td><td>No</td><td>Text</td><td>Financer name.</td></tr>
+        <tr><td><code>deal</code></td><td>No</td><td>Text</td><td>Contract type or deal type.</td></tr>
+        <tr><td><code>module</code></td><td>No</td><td>Text</td><td>Panel/module model.</td></tr>
+        <tr><td><code>contractor</code></td><td>No</td><td>Text</td><td>Contractor name.</td></tr>
+        <tr><td><code>build_partner</code></td><td>No</td><td>Text</td><td>Build/install partner.</td></tr>
+        <tr><td><code>crew</code></td><td>No</td><td>Comma-separated names</td><td>Crew assignment list. Names must match app user names to link automatically.</td></tr>
+        <tr><td><code>utility_company</code></td><td>No</td><td>Text</td><td>Utility company.</td></tr>
+        <tr><td><code>install_date</code></td><td>No</td><td>Date</td><td>Install scheduled date. Also used as install completion date when status/payment evidence shows the install is done.</td></tr>
+        <tr><td><code>inspection_date</code></td><td>No</td><td>Date</td><td>Final inspection completion date.</td></tr>
+        <tr><td><code>pto_date</code></td><td>No</td><td>Date</td><td>PTO granted date.</td></tr>
+        <tr><td><code>site_survey_date</code></td><td>No</td><td>Date</td><td>Site survey date.</td></tr>
+        <tr><td><code>contract_signed</code></td><td>No</td><td>Date</td><td>Contract signed date.</td></tr>
+        <tr><td><code>status</code></td><td>No</td><td>One of the accepted status values</td><td>Explicit status override.</td></tr>
+        <tr><td><code>notes</code></td><td>No</td><td>Text</td><td>Internal notes imported into the job record.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Recommended Workflow Mapping</h2>
+    <ul>
+      <li>If install is done, include <code>install_date</code>.</li>
+      <li>If inspection passed, include <code>inspection_date</code>.</li>
+      <li>If PTO happened, include <code>pto_date</code>.</li>
+      <li>If M1 exists, include <code>m1_invoice_number</code> and <code>m1_amount</code>.</li>
+      <li>If M1 is paid, set <code>m1_status</code> to <code>Yes</code>.</li>
+      <li>If M2 exists, include <code>m2_invoice_number</code> and <code>m2_amount</code>.</li>
+      <li>If M2 is paid, set <code>m2_status</code> to <code>Yes</code>.</li>
+    </ul>
+
+    <h2>Printing / PDF</h2>
+    <p>This page is printable. Open it in the browser and use <strong>Print</strong> to save it as a PDF for your team.</p>
+  </div>
+</body>
+</html>

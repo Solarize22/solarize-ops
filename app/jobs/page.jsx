@@ -3,12 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
-import { Search, CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { formatCurrency, formatDate, getJobSortTime, getJobWorkflowDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
-
-const STATE_OPTIONS = ["All", "CT", "MA", "NH", "ME", "VT", "RI", "NY", "NJ"];
 
 const STATUS_META = {
   created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
@@ -80,12 +77,27 @@ const QUEUES = [
   },
 ];
 
+const JOBS_WORKLIST_COLUMNS_KEY = "jobs-worklist-columns-v1";
+const JOBS_WORKLIST_SORT_KEY = "jobs-worklist-sort-v1";
+
+const DEFAULT_VISIBLE_COLUMNS = {
+  installScheduledDate: false,
+  installCompletedDate: false,
+  inspectionDate: false,
+  systemSize: false,
+  panels: false,
+  module: false,
+  inverter: false,
+  battery: false,
+  status: true,
+  nextStep: true,
+  workflowDate: true,
+  rep: false,
+  outstanding: false,
+};
+
 function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.created;
-}
-
-function operationalDate(job) {
-  return job.installScheduledAt || job.installCompletedAt || job.ptoGrantedAt || job.currentStatusChangedAt;
 }
 
 function nextAction(job) {
@@ -124,76 +136,121 @@ function nextAction(job) {
 }
 
 function queueSort(job) {
-  const parsed = operationalDate(job) ? new Date(operationalDate(job)).getTime() : 0;
-  return Number.isFinite(parsed) ? parsed : 0;
+  return getJobSortTime(job);
 }
 
-function addressSummary(job) {
-  return [job.address?.city, job.address?.state].filter(Boolean).join(", ") || "-";
+function getInspectionDate(job) {
+  return job.inspectionCompletedAt || job.inspectionScheduledAt || null;
 }
 
-function QueuePanel({ queue, canSeeFinancials }) {
-  const Icon = queue.icon;
-  return (
-    <div className="card" style={{ padding: "18px", border: "1px solid var(--border)", background: "var(--surface)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: "var(--surface-2)", color: "var(--text-secondary)", display: "grid", placeItems: "center", flexShrink: 0 }}>
-            <Icon size={16} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>{queue.title}</div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{queue.description}</div>
-          </div>
-        </div>
-        <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
-          {queue.jobs.length}
-        </div>
-      </div>
+function getFullAddress(job) {
+  return [
+    job.address?.street1,
+    job.address?.street2,
+    job.address?.city,
+    job.address?.state,
+    job.address?.postalCode,
+  ].filter(Boolean).join(", ") || "-";
+}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {queue.jobs.length === 0 ? (
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", padding: "8px 0" }}>{queue.empty}</div>
-        ) : queue.jobs.slice(0, 6).map((job) => {
-          const status = statusMeta(job.currentStatus);
-          return (
-            <Link key={job.id} href={`/jobs/${job.jobNumber}`} style={{ textDecoration: "none", color: "inherit" }}>
-              <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "11px 12px", background: "var(--surface-soft)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{job.customerName}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-                      {job.jobNumber} | {addressSummary(job)}
-                    </div>
-                  </div>
-                  <span style={{ padding: "3px 8px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
-                    {status.label}
-                  </span>
-                </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-secondary)" }}>
-                  Next: <strong>{nextAction(job)}</strong>
-                </div>
-                <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--text-secondary)" }}>
-                  <span>{formatDate(operationalDate(job))}</span>
-                  <span>{canSeeFinancials ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : job.repName || "No rep"}</span>
-                </div>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
+function compareValues(left, right, direction = "asc") {
+  const multiplier = direction === "desc" ? -1 : 1;
+
+  if (left === right) return 0;
+  if (left === null || left === undefined || left === "") return 1;
+  if (right === null || right === undefined || right === "") return -1;
+
+  if (typeof left === "number" && typeof right === "number") {
+    return (left - right) * multiplier;
+  }
+
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }) * multiplier;
+}
+
+function getSortValue(job, key) {
+  switch (key) {
+    case "jobNumber":
+      return job.jobNumber || "";
+    case "customer":
+      return job.customerName || "";
+    case "fullAddress":
+      return getFullAddress(job);
+    case "installScheduledDate":
+      return job.installScheduledAt ? new Date(job.installScheduledAt).getTime() : null;
+    case "installCompletedDate":
+      return job.installCompletedAt ? new Date(job.installCompletedAt).getTime() : null;
+    case "inspectionDate": {
+      const inspectionDate = getInspectionDate(job);
+      return inspectionDate ? new Date(inspectionDate).getTime() : null;
+    }
+    case "systemSize":
+      return job.systemSizeKw ?? null;
+    case "panels":
+      return job.panelCount ?? null;
+    case "module":
+      return job.module || "";
+    case "inverter":
+      return job.inverter || "";
+    case "battery":
+      return job.battery ? "Yes" : "No";
+    case "status":
+      return statusMeta(job.currentStatus).label;
+    case "nextStep":
+      return nextAction(job);
+    case "workflowDate":
+      return queueSort(job);
+    case "rep":
+      return job.repName || "";
+    case "outstanding":
+      return job.financialSummary?.outstandingCents ?? null;
+    default:
+      return null;
+  }
+}
+
+function cellStyle(overrides = {}) {
+  return {
+    padding: "10px 12px",
+    verticalAlign: "middle",
+    ...overrides,
+  };
+}
+
+function matchesWorklistSearch(job, searchTerm) {
+  if (!searchTerm) return true;
+
+  const haystack = [
+    job.jobNumber,
+    job.customerName,
+    job.repName,
+    getFullAddress(job),
+    job.address?.city,
+    job.address?.state,
+    job.address?.postalCode,
+    job.module,
+    job.inverter,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(searchTerm);
 }
 
 export default function JobsPage() {
   const { canSeeFinancials, loading: roleLoading } = useUserRole();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [period, setPeriod] = useState("This week");
-  const [stateFilter, setStateFilter] = useState("All");
-  const [showClosed, setShowClosed] = useState(false);
+  const [activeQueueKey, setActiveQueueKey] = useState("all");
+  const [showAllJobs, setShowAllJobs] = useState(false);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortState, setSortState] = useState({ key: "workflowDate", direction: "asc" });
+  const [visibleColumns, setVisibleColumns] = useState({
+    ...DEFAULT_VISIBLE_COLUMNS,
+    outstanding: canSeeFinancials,
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -204,29 +261,47 @@ export default function JobsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filteredJobs = useMemo(() => {
-    const windowed = filterByPeriod(
-      jobs.map((job) => ({ ...job, createdAt: operationalDate(job) })),
-      period
-    );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-    return windowed.filter((job) => {
-      const q = search.trim().toLowerCase();
-      const matchesSearch = !q || [
-        job.customerName,
-        job.jobNumber,
-        job.address?.street1,
-        job.address?.city,
-        job.address?.state,
-        job.repName,
-        ...(job.crewNames || []),
-      ].filter(Boolean).join(" ").toLowerCase().includes(q);
+    try {
+      const savedColumns = window.localStorage.getItem(JOBS_WORKLIST_COLUMNS_KEY);
+      if (savedColumns) {
+        const parsedColumns = JSON.parse(savedColumns);
+        if (parsedColumns && typeof parsedColumns === "object") {
+          setVisibleColumns((current) => ({
+            ...current,
+            ...DEFAULT_VISIBLE_COLUMNS,
+            ...parsedColumns,
+          }));
+        }
+      }
 
-      const matchesState = stateFilter === "All" || job.address?.state === stateFilter;
-      const isClosed = ["paid_in_full", "cancelled"].includes(job.currentStatus);
-      return matchesSearch && matchesState && (showClosed || !isClosed);
-    });
-  }, [jobs, period, search, stateFilter, showClosed]);
+      const savedSort = window.localStorage.getItem(JOBS_WORKLIST_SORT_KEY);
+      if (savedSort) {
+        const parsedSort = JSON.parse(savedSort);
+        if (
+          parsedSort &&
+          typeof parsedSort === "object" &&
+          typeof parsedSort.key === "string" &&
+          ["asc", "desc"].includes(parsedSort.direction)
+        ) {
+          setSortState({
+            key: parsedSort.key,
+            direction: parsedSort.direction,
+          });
+        }
+      }
+    } catch {
+      // Ignore malformed saved preferences and fall back to defaults.
+    } finally {
+      setPreferencesReady(true);
+    }
+  }, []);
+
+  const activeJobs = useMemo(() => {
+    return jobs.filter((job) => !["paid_in_full", "cancelled"].includes(job.currentStatus));
+  }, [jobs]);
 
   const queueData = useMemo(() => {
     const visibleQueues = canSeeFinancials
@@ -235,13 +310,129 @@ export default function JobsPage() {
 
     return visibleQueues.map((queue) => ({
       ...queue,
-      jobs: filteredJobs.filter(queue.match).sort((a, b) => queueSort(a) - queueSort(b)),
+      jobs: activeJobs.filter(queue.match).sort((a, b) => queueSort(a) - queueSort(b)),
     }));
-  }, [filteredJobs, canSeeFinancials]);
+  }, [activeJobs, canSeeFinancials]);
+
+  const activeQueue = useMemo(() => {
+    return queueData.find((queue) => queue.key === activeQueueKey) || null;
+  }, [queueData, activeQueueKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedScope = params.get("scope");
+    const requestedQueue = params.get("queue");
+    const visibleQueueKeys = new Set(queueData.map((queue) => queue.key));
+
+    if (requestedScope === "all") {
+      setActiveQueueKey("all");
+      setShowAllJobs(true);
+      return;
+    }
+
+    if (requestedQueue && visibleQueueKeys.has(requestedQueue)) {
+      setActiveQueueKey(requestedQueue);
+      setShowAllJobs(false);
+      return;
+    }
+
+    setActiveQueueKey("all");
+    setShowAllJobs(false);
+  }, [queueData]);
+
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
   const worklist = useMemo(() => {
-    return [...filteredJobs].sort((a, b) => queueSort(a) - queueSort(b)).slice(0, 100);
-  }, [filteredJobs]);
+    const sourceJobs = activeQueue ? activeQueue.jobs : showAllJobs ? jobs : activeJobs;
+    const filteredJobs = sourceJobs.filter((job) => matchesWorklistSearch(job, normalizedSearchTerm));
+    const sortedJobs = [...filteredJobs].sort((a, b) => {
+      const primary = compareValues(getSortValue(a, sortState.key), getSortValue(b, sortState.key), sortState.direction);
+      if (primary !== 0) return primary;
+      return queueSort(a) - queueSort(b);
+    });
+
+    return sortedJobs.slice(0, 100);
+  }, [activeJobs, activeQueue, jobs, normalizedSearchTerm, showAllJobs, sortState]);
+
+  useEffect(() => {
+    setVisibleColumns((current) => ({
+      ...current,
+      outstanding: canSeeFinancials ? current.outstanding : false,
+    }));
+  }, [canSeeFinancials]);
+
+  useEffect(() => {
+    if (!preferencesReady || typeof window === "undefined") return;
+    window.localStorage.setItem(JOBS_WORKLIST_COLUMNS_KEY, JSON.stringify(visibleColumns));
+  }, [preferencesReady, visibleColumns]);
+
+  useEffect(() => {
+    if (!preferencesReady || typeof window === "undefined") return;
+    window.localStorage.setItem(JOBS_WORKLIST_SORT_KEY, JSON.stringify(sortState));
+  }, [preferencesReady, sortState]);
+
+  const optionalColumns = [
+    { key: "installScheduledDate", label: "Install scheduled" },
+    { key: "installCompletedDate", label: "Install completed" },
+    { key: "inspectionDate", label: "Inspection date" },
+    { key: "systemSize", label: "System size" },
+    { key: "panels", label: "Panels" },
+    { key: "module", label: "Module" },
+    { key: "inverter", label: "Inverter" },
+    { key: "battery", label: "Battery" },
+    { key: "status", label: "Status" },
+    { key: "nextStep", label: "Next step" },
+    { key: "workflowDate", label: "Workflow date" },
+    { key: "rep", label: "Rep" },
+    ...(canSeeFinancials ? [{ key: "outstanding", label: "Outstanding" }] : []),
+  ];
+
+  const tableColumns = [
+    { key: "jobNumber", label: "Job #" },
+    { key: "customer", label: "Customer" },
+    { key: "fullAddress", label: "Full address" },
+    ...(visibleColumns.installScheduledDate ? [{ key: "installScheduledDate", label: "Install scheduled" }] : []),
+    ...(visibleColumns.installCompletedDate ? [{ key: "installCompletedDate", label: "Install completed" }] : []),
+    ...(visibleColumns.inspectionDate ? [{ key: "inspectionDate", label: "Inspection date" }] : []),
+    ...(visibleColumns.systemSize ? [{ key: "systemSize", label: "System size" }] : []),
+    ...(visibleColumns.panels ? [{ key: "panels", label: "Panels" }] : []),
+    ...(visibleColumns.module ? [{ key: "module", label: "Module" }] : []),
+    ...(visibleColumns.inverter ? [{ key: "inverter", label: "Inverter" }] : []),
+    ...(visibleColumns.battery ? [{ key: "battery", label: "Battery" }] : []),
+    ...(visibleColumns.status ? [{ key: "status", label: "Status" }] : []),
+    ...(visibleColumns.nextStep ? [{ key: "nextStep", label: "Next step" }] : []),
+    ...(visibleColumns.workflowDate ? [{ key: "workflowDate", label: "Workflow date" }] : []),
+    ...(visibleColumns.rep ? [{ key: "rep", label: "Rep" }] : []),
+    ...(canSeeFinancials && visibleColumns.outstanding ? [{ key: "outstanding", label: "Outstanding" }] : []),
+  ];
+
+  function toggleSort(key) {
+    setSortState((current) => {
+      if (current.key === key) {
+        return {
+          key,
+          direction: current.direction === "asc" ? "desc" : "asc",
+        };
+      }
+
+      return {
+        key,
+        direction: "asc",
+      };
+    });
+  }
+
+  function handleAllJobsClick() {
+    if (activeQueueKey === "all") {
+      setShowAllJobs((current) => !current);
+      return;
+    }
+
+    setActiveQueueKey("all");
+    setShowAllJobs(false);
+  }
 
   return (
     <AppShell>
@@ -251,7 +442,6 @@ export default function JobsPage() {
           <p>Use the queues below to work installs, invoices, PTO, collections, and problem jobs.</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <PeriodFilter value={period} onChange={setPeriod} />
           {canSeeFinancials ? (
             <Link href="/invoices">
               <button className="btn btn-outline" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -262,70 +452,215 @@ export default function JobsPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
-        <div style={{ position: "relative", flex: "1 1 320px", maxWidth: 420 }}>
-          <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search customer, job number, address, rep, crew..."
-            style={{ width: "100%", paddingLeft: 34, paddingRight: 12 }}
-          />
-        </div>
-
-        <select
-          value={stateFilter}
-          onChange={(e) => setStateFilter(e.target.value)}
-          style={{ fontSize: 13, padding: "9px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface)" }}
-        >
-          {STATE_OPTIONS.map((state) => (
-            <option key={state} value={state}>
-              {state === "All" ? "All states" : state}
-            </option>
-          ))}
-        </select>
-
-        <button
-          className={showClosed ? "btn btn-primary" : "btn btn-outline"}
-          onClick={() => setShowClosed((value) => !value)}
-        >
-          {showClosed ? "Showing closed jobs" : "Hide closed jobs"}
-        </button>
-
-        <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
-          {loading || roleLoading ? "Loading..." : `${filteredJobs.length} jobs in play`}
-        </div>
+      <div style={{ marginBottom: 18, fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
+        {loading || roleLoading ? "Loading..." : showAllJobs ? `Showing ${jobs.length} total jobs` : `Showing ${activeJobs.length} active jobs`}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={handleAllJobsClick}
+          className="card"
+          style={{
+            padding: "18px",
+            border: activeQueueKey === "all" ? "1px solid var(--text-primary)" : "1px solid var(--border)",
+            background: activeQueueKey === "all" ? "var(--surface-2)" : "var(--surface)",
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{showAllJobs ? "All jobs" : "All active jobs"}</div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                {showAllJobs ? "Showing the full database, including closed jobs." : "Show the full open pipeline."}
+              </div>
+            </div>
+            <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
+              {showAllJobs ? jobs.length : activeJobs.length}
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            {activeQueueKey === "all"
+              ? showAllJobs
+                ? "Click again to go back to active jobs only."
+                : "Click again to include closed jobs too."
+              : "Click to reset the worklist."}
+          </div>
+        </button>
+
         {queueData.map((queue) => (
-          <QueuePanel key={queue.key} queue={queue} canSeeFinancials={canSeeFinancials} />
+          <button
+            key={queue.key}
+            type="button"
+            onClick={() => {
+              setActiveQueueKey(queue.key);
+              setShowAllJobs(false);
+            }}
+            className="card"
+            style={{
+              padding: "18px",
+              border: activeQueueKey === queue.key ? "1px solid var(--text-primary)" : "1px solid var(--border)",
+              background: activeQueueKey === queue.key ? "var(--surface-2)" : "var(--surface)",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 12, background: "var(--surface-2)", color: "var(--text-secondary)", display: "grid", placeItems: "center", flexShrink: 0 }}>
+                  <queue.icon size={16} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{queue.title}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{queue.description}</div>
+                </div>
+              </div>
+              <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
+                {queue.jobs.length}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {activeQueueKey === queue.key ? "Currently driving the master worklist." : "Click to filter the worklist to this queue."}
+            </div>
+          </button>
         ))}
       </div>
 
       <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 15 }}>Master worklist</div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Secondary scan for the full active pipeline after you clear the queue cards above.</div>
+        <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>
+              {activeQueue ? activeQueue.title : showAllJobs ? "All jobs" : "Master worklist"}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {activeQueue ? activeQueue.description : showAllJobs ? "Showing every job, including closed and cancelled records." : "Showing the full active pipeline."}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                minWidth: 260,
+                padding: "0 10px",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                background: "var(--surface-2)",
+              }}
+            >
+              <Search size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search job #, customer, address..."
+                style={{
+                  width: "100%",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  padding: "10px 0",
+                }}
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm("")}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: 0,
+                  }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {`Sorted by ${tableColumns.find((column) => column.key === sortState.key)?.label || "Workflow date"} ${sortState.direction === "asc" ? "ascending" : "descending"}`}
+            </div>
+            <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setShowColumnPicker((value) => !value)}
+            >
+              Columns
+            </button>
+            {showColumnPicker ? (
+              <div
+                className="card"
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "calc(100% + 8px)",
+                  width: 220,
+                  padding: "14px 16px",
+                  zIndex: 20,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface)",
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 10 }}>
+                  Optional columns
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {optionalColumns.map((column) => (
+                    <label key={column.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[column.key]}
+                        onChange={() => {
+                          setVisibleColumns((current) => ({
+                            ...current,
+                            [column.key]: !current[column.key],
+                          }));
+                        }}
+                      />
+                      {column.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            </div>
+          </div>
         </div>
 
         {loading ? (
           <div className="empty-state" style={{ padding: 34 }}>Loading jobs...</div>
         ) : worklist.length === 0 ? (
-          <div className="empty-state" style={{ padding: 34 }}>No jobs match the current action filters.</div>
+          <div className="empty-state" style={{ padding: 34 }}>
+            {searchTerm
+              ? "No jobs match that search."
+              : activeQueue
+                ? `No jobs are in the ${activeQueue.title.toLowerCase()} right now.`
+                : "No active jobs right now."}
+          </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, lineHeight: 1.35 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
-                  {(canSeeFinancials
-                    ? ["Customer", "Job #", "Town", "Status", "Next step", "Date", "Outstanding", ""]
-                    : ["Customer", "Job #", "Town", "Status", "Next step", "Date", ""]
-                  ).map((label) => (
+                  {tableColumns.map((column) => (
                     <th
-                      key={label}
+                      key={column.key}
                       style={{
-                        padding: "10px 12px",
+                        padding: "6px 12px",
                         textAlign: "left",
                         fontSize: 11,
                         textTransform: "uppercase",
@@ -334,15 +669,60 @@ export default function JobsPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {label}
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(column.key)}
+                        style={{
+                          border: "none",
+                          background: sortState.key === column.key ? "var(--surface)" : "transparent",
+                          borderRadius: 999,
+                          padding: "5px 9px",
+                          margin: 0,
+                          font: "inherit",
+                          color: sortState.key === column.key ? "var(--text-primary)" : "var(--text-secondary)",
+                          textTransform: "inherit",
+                          letterSpacing: "inherit",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          fontWeight: sortState.key === column.key ? 700 : 600,
+                          boxShadow: sortState.key === column.key ? "inset 0 0 0 1px var(--border)" : "none",
+                        }}
+                      >
+                        <span>{column.label}</span>
+                        {sortState.key === column.key ? (
+                          sortState.direction === "asc" ? (
+                            <ArrowUp size={12} />
+                          ) : (
+                            <ArrowDown size={12} />
+                          )
+                        ) : (
+                          <span style={{ width: 12, height: 12, display: "inline-block", color: "var(--text-tertiary)" }} />
+                        )}
+                      </button>
                     </th>
                   ))}
+                  <th
+                    style={{
+                      padding: "10px 12px",
+                      textAlign: "left",
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      letterSpacing: ".05em",
+                      color: "var(--text-secondary)",
+                      whiteSpace: "nowrap",
+                    }}
+                  />
                 </tr>
               </thead>
               <tbody>
                 {worklist.map((job, index) => {
                   const status = statusMeta(job.currentStatus);
                   const issue = ["inspection_failed", "on_hold"].includes(job.currentStatus);
+                  const fullAddress = getFullAddress(job);
+                  const inspectionDate = getInspectionDate(job);
                   return (
                     <tr
                       key={job.id}
@@ -353,30 +733,76 @@ export default function JobsPage() {
                         background: issue ? "var(--red-bg)" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                       }}
                     >
-                      <td style={{ padding: "12px" }}>
+                      <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                        <span className="mono badge badge-slate">{job.jobNumber}</span>
+                      </td>
+                      <td style={cellStyle({ minWidth: 180 })}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {issue && <AlertTriangle size={13} style={{ color: "#dc2626", flexShrink: 0 }} />}
                           <div>
                             <div style={{ fontWeight: 700 }}>{job.customerName}</div>
-                            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{job.repName || "No rep assigned"}</div>
                           </div>
                         </div>
                       </td>
-                      <td style={{ padding: "12px" }}><span className="mono badge badge-slate">{job.jobNumber}</span></td>
-                      <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{addressSummary(job)}</td>
-                      <td style={{ padding: "12px" }}>
-                        <span style={{ padding: "4px 9px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700 }}>
-                          {status.label}
-                        </span>
-                      </td>
-                      <td style={{ padding: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{nextAction(job)}</td>
-                      <td style={{ padding: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{formatDate(operationalDate(job))}</td>
-                      {canSeeFinancials ? (
-                        <td style={{ padding: "12px", whiteSpace: "nowrap", fontWeight: 700 }}>
+                      <td style={cellStyle({ color: "var(--text-secondary)", minWidth: 260 })}>{fullAddress}</td>
+                      {visibleColumns.installScheduledDate ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {formatDate(job.installScheduledAt)}
+                        </td>
+                      ) : null}
+                      {visibleColumns.installCompletedDate ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {formatDate(job.installCompletedAt)}
+                        </td>
+                      ) : null}
+                      {visibleColumns.inspectionDate ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {formatDate(inspectionDate)}
+                        </td>
+                      ) : null}
+                      {visibleColumns.systemSize ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {job.systemSizeKw ? `${job.systemSizeKw} kW` : "-"}
+                        </td>
+                      ) : null}
+                      {visibleColumns.panels ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {job.panelCount || "-"}
+                        </td>
+                      ) : null}
+                      {visibleColumns.module ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", minWidth: 160 })}>{job.module || "-"}</td>
+                      ) : null}
+                      {visibleColumns.inverter ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", minWidth: 160 })}>{job.inverter || "-"}</td>
+                      ) : null}
+                      {visibleColumns.battery ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {job.battery ? "Yes" : "No"}
+                        </td>
+                      ) : null}
+                      {visibleColumns.status ? (
+                        <td style={cellStyle()}>
+                          <span style={{ padding: "4px 9px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700 }}>
+                            {status.label}
+                          </span>
+                        </td>
+                      ) : null}
+                      {visibleColumns.nextStep ? (
+                        <td style={cellStyle({ fontWeight: 600, color: "var(--text-primary)", minWidth: 150 })}>{nextAction(job)}</td>
+                      ) : null}
+                      {visibleColumns.workflowDate ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>{formatDate(getJobWorkflowDate(job))}</td>
+                      ) : null}
+                      {visibleColumns.rep ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>{job.repName || "-"}</td>
+                      ) : null}
+                      {canSeeFinancials && visibleColumns.outstanding ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap", fontWeight: 700 })}>
                           {formatCurrency((job.financialSummary?.outstandingCents || 0) / 100)}
                         </td>
                       ) : null}
-                      <td style={{ padding: "12px" }}><ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} /></td>
+                      <td style={cellStyle({ whiteSpace: "nowrap" })}><ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} /></td>
                     </tr>
                   );
                 })}

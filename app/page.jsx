@@ -4,40 +4,175 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
   ClipboardList,
-  Eye,
-  EyeOff,
+  SunMedium,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import PeriodFilter, { filterByPeriod } from "@/components/PeriodFilter";
-import { statusBadgeClass, formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, getJobWorkflowDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
 
-const PIPELINE_STAGES = [
-  { label: "created", display: "Created", badge: "badge-slate" },
-  { label: "scheduled", display: "Scheduled", badge: "badge-blue" },
-  { label: "install_completed", display: "Install Complete", badge: "badge-green" },
-  { label: "inspection_scheduled", display: "Inspection Scheduled", badge: "badge-blue" },
-  { label: "inspection_passed", display: "Inspection Passed", badge: "badge-green" },
-  { label: "pto_granted", display: "PTO Granted", badge: "badge-blue" },
-  { label: "paid_in_full", display: "Paid in Full", badge: "badge-dark" },
-  { label: "on_hold", display: "On Hold / Issue", badge: "badge-red" },
-];
+const STATUS_META = {
+  created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
+  scheduled: { label: "Scheduled", bg: "#dbeafe", color: "#1d4ed8" },
+  install_completed: { label: "Install complete", bg: "#dcfce7", color: "#166534" },
+  inspection_scheduled: { label: "Inspection scheduled", bg: "#e0f2fe", color: "#075985" },
+  inspection_passed: { label: "Inspection passed", bg: "#d1fae5", color: "#065f46" },
+  inspection_failed: { label: "Inspection failed", bg: "#fee2e2", color: "#991b1b" },
+  pto_submitted: { label: "PTO submitted", bg: "#fef3c7", color: "#92400e" },
+  pto_granted: { label: "PTO granted", bg: "#ede9fe", color: "#6d28d9" },
+  m1_paid: { label: "M1 paid", bg: "#dcfce7", color: "#166534" },
+  paid_in_full: { label: "Paid in full", bg: "#111827", color: "#ffffff" },
+  on_hold: { label: "On hold", bg: "#fee2e2", color: "#991b1b" },
+  cancelled: { label: "Cancelled", bg: "#e5e7eb", color: "#4b5563" },
+};
+
+const CARD_TONES = {
+  slate: { bg: "var(--surface)", border: "var(--border)", iconBg: "var(--surface-2)", iconColor: "var(--text-secondary)" },
+  blue: { bg: "#eff6ff", border: "#bfdbfe", iconBg: "#dbeafe", iconColor: "#1d4ed8" },
+  green: { bg: "#f0fdf4", border: "#bbf7d0", iconBg: "#dcfce7", iconColor: "#166534" },
+  amber: { bg: "#fffbeb", border: "#fde68a", iconBg: "#fef3c7", iconColor: "#92400e" },
+  red: { bg: "#fef2f2", border: "#fecaca", iconBg: "#fee2e2", iconColor: "#b91c1c" },
+  violet: { bg: "#f5f3ff", border: "#ddd6fe", iconBg: "#ede9fe", iconColor: "#6d28d9" },
+};
+
+function statusMeta(status) {
+  return STATUS_META[status] || STATUS_META.created;
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isSameDay(left, right) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function daysSince(value) {
+  const parsed = parseDateValue(value);
+  if (!parsed) return null;
+  const diffMs = startOfDay(new Date()).getTime() - startOfDay(parsed).getTime();
+  return Math.floor(diffMs / 86400000);
+}
+
+function jobAddress(job) {
+  return [job.address?.street1, job.address?.city, job.address?.state].filter(Boolean).join(", ") || "-";
+}
+
+function ActionCard({ href, title, count, detail, footnote, icon: Icon, tone = "slate" }) {
+  const colors = CARD_TONES[tone] || CARD_TONES.slate;
+
+  return (
+    <Link href={href} style={{ textDecoration: "none" }}>
+      <div
+        className="card"
+        style={{
+          padding: 18,
+          border: `1px solid ${colors.border}`,
+          background: colors.bg,
+          minHeight: 148,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: 14,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--text-secondary)", marginBottom: 8 }}>
+              {title}
+            </div>
+            <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, color: "var(--text-primary)", marginBottom: 10 }}>
+              {count}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600 }}>
+              {detail}
+            </div>
+          </div>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 14,
+              display: "grid",
+              placeItems: "center",
+              background: colors.iconBg,
+              color: colors.iconColor,
+              flexShrink: 0,
+            }}
+          >
+            <Icon size={18} />
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{footnote}</div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-primary)", fontSize: 12, fontWeight: 700 }}>
+            Open
+            <ArrowRight size={13} />
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function JobListItem({ job, href, note, tone = "default" }) {
+  const status = statusMeta(job.currentStatus);
+  const isAlert = tone === "alert";
+
+  return (
+    <Link href={href} style={{ textDecoration: "none" }}>
+      <div
+        style={{
+          padding: "12px 14px",
+          borderRadius: "var(--radius-md)",
+          border: `1px solid ${isAlert ? "#fecaca" : "var(--border)"}`,
+          background: isAlert ? "#fef2f2" : "var(--surface)",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "flex-start",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            {isAlert ? <AlertTriangle size={13} style={{ color: "#b91c1c", flexShrink: 0 }} /> : null}
+            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{job.customerName}</div>
+            <span className="mono badge badge-slate">{job.jobNumber}</span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>{jobAddress(job)}</div>
+          <div style={{ fontSize: 12, color: isAlert ? "#991b1b" : "var(--text-secondary)" }}>{note}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ padding: "4px 9px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+            {status.label}
+          </span>
+          <ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} />
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 export default function DashboardPage() {
   const { canSeeFinancials } = useUserRole();
   const [jobs, setJobs] = useState([]);
   const [report, setReport] = useState(null);
-  const [permits, setPermits] = useState([]);
   const [serviceItems, setServiceItems] = useState([]);
   const [scheduleItems, setScheduleItems] = useState([]);
-  const [period, setPeriod] = useState("This week");
-  const [hidden, setHidden] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  const mask = (value) => (hidden ? "...." : value);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,33 +182,29 @@ export default function DashboardPage() {
       try {
         const requests = [
           fetch("/api/v2/jobs"),
-          fetch("/api/v2/permits"),
           fetch("/api/v2/service"),
           fetch("/api/v2/schedule"),
         ];
+
         if (canSeeFinancials) {
-          requests.splice(1, 0, fetch("/api/v2/reports"));
+          requests.push(fetch("/api/v2/reports"));
         }
 
         const responses = await Promise.all(requests);
-        const [jobsRes, maybeReportsRes, permitsRes, serviceRes, scheduleRes] = canSeeFinancials
-          ? responses
-          : [responses[0], null, responses[1], responses[2], responses[3]];
+        const [jobsRes, serviceRes, scheduleRes, reportsRes] = responses;
 
         if (cancelled) return;
 
         setJobs(jobsRes.ok ? await jobsRes.json() : []);
-        setReport(canSeeFinancials && maybeReportsRes?.ok ? await maybeReportsRes.json() : null);
-        setPermits(permitsRes.ok ? await permitsRes.json() : []);
         setServiceItems(serviceRes.ok ? await serviceRes.json() : []);
         setScheduleItems(scheduleRes.ok ? await scheduleRes.json() : []);
+        setReport(canSeeFinancials && reportsRes?.ok ? await reportsRes.json() : null);
       } catch {
         if (!cancelled) {
           setJobs([]);
-          setReport(null);
-          setPermits([]);
           setServiceItems([]);
           setScheduleItems([]);
+          setReport(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -86,253 +217,367 @@ export default function DashboardPage() {
     };
   }, [canSeeFinancials]);
 
-  const periodReadyJobs = useMemo(() => {
-    return filterByPeriod(
-      jobs.map((job) => ({
-        ...job,
-        createdAt: job.installScheduledAt || job.installCompletedAt || job.currentStatusChangedAt,
-      })),
-      period
-    );
-  }, [jobs, period]);
+  const activeJobs = useMemo(() => {
+    return jobs.filter((job) => !["paid_in_full", "cancelled"].includes(job.currentStatus));
+  }, [jobs]);
 
-  const totalInvoiced = report?.overview?.total_invoiced_cents || 0;
-  const totalCollected = report?.overview?.total_collected_cents || 0;
-  const totalOutstanding = report?.overview?.total_outstanding_cents || 0;
-  const overdueInvoices = report?.overview?.overdue_invoice_count || 0;
+  const scheduledJobs = useMemo(() => {
+    return activeJobs.filter((job) => job.currentStatus === "scheduled");
+  }, [activeJobs]);
 
-  const activeJobs = periodReadyJobs.filter((job) => !["paid_in_full", "cancelled"].includes(job.currentStatus)).length;
-  const scheduledJobs = periodReadyJobs.filter((job) => job.currentStatus === "scheduled").length;
-  const openService = serviceItems.filter((item) => item.status !== "Resolved").length;
-  const pendingPermits = permits.filter((item) => item.status !== "Approved").length;
-  const upcomingSchedule = scheduleItems.filter((item) => item.status !== "Cancelled").slice(0, 3);
-  const issueJobs = periodReadyJobs.filter((job) => ["on_hold", "inspection_failed"].includes(job.currentStatus));
-  const highServiceItems = serviceItems.filter((item) => item.urgency === "High" && item.status !== "Resolved");
+  const readyForM1 = useMemo(() => {
+    return activeJobs.filter((job) => ["install_completed", "inspection_scheduled", "inspection_passed"].includes(job.currentStatus));
+  }, [activeJobs]);
 
-  const stageCounts = {};
-  PIPELINE_STAGES.forEach(({ label }) => {
-    stageCounts[label] = periodReadyJobs.filter((job) => job.currentStatus === label).length;
-  });
+  const inspectionQueue = useMemo(() => {
+    return activeJobs.filter((job) => ["inspection_scheduled", "inspection_failed"].includes(job.currentStatus));
+  }, [activeJobs]);
 
-  const activeJobList = periodReadyJobs.filter((job) => !["paid_in_full", "cancelled"].includes(job.currentStatus));
+  const ptoWatch = useMemo(() => {
+    return activeJobs.filter((job) => ["inspection_passed", "pto_submitted"].includes(job.currentStatus));
+  }, [activeJobs]);
+
+  const readyForM2 = useMemo(() => {
+    return activeJobs.filter((job) => ["pto_granted", "m1_paid"].includes(job.currentStatus));
+  }, [activeJobs]);
+
+  const problemJobs = useMemo(() => {
+    return activeJobs.filter((job) => ["on_hold", "inspection_failed"].includes(job.currentStatus));
+  }, [activeJobs]);
+
+  const collectionsQueue = useMemo(() => {
+    return activeJobs.filter((job) => (job.financialSummary?.outstandingCents || 0) > 0);
+  }, [activeJobs]);
+
+  const stalePtoJobs = useMemo(() => {
+    return ptoWatch
+      .filter((job) => {
+        const age = daysSince(getJobWorkflowDate(job));
+        return age !== null && age >= 7;
+      })
+      .sort((a, b) => (daysSince(getJobWorkflowDate(b)) || 0) - (daysSince(getJobWorkflowDate(a)) || 0));
+  }, [ptoWatch]);
+
+  const orderedSchedule = useMemo(() => {
+    return [...scheduleItems]
+      .map((item) => ({ ...item, parsedDate: parseDateValue(item.date) }))
+      .filter((item) => item.parsedDate)
+      .sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
+  }, [scheduleItems]);
+
+  const today = startOfDay(new Date());
+
+  const todaySchedule = useMemo(() => {
+    return orderedSchedule.filter((item) => isSameDay(item.parsedDate, today)).slice(0, 5);
+  }, [orderedSchedule, today]);
+
+  const upcomingSchedule = useMemo(() => {
+    return orderedSchedule
+      .filter((item) => item.parsedDate >= today && !isSameDay(item.parsedDate, today))
+      .slice(0, 5);
+  }, [orderedSchedule, today]);
+
+  const highUrgencyService = useMemo(() => {
+    return serviceItems.filter((item) => item.urgency === "High" && item.status !== "Resolved");
+  }, [serviceItems]);
+
+  const attentionItems = useMemo(() => {
+    const items = [];
+
+    if (canSeeFinancials && (report?.overview?.overdue_invoice_count || 0) > 0) {
+      items.push({
+        id: "overdue-invoices",
+        title: "Overdue invoices",
+        subtitle: `${report.overview.overdue_invoice_count} overdue · ${formatCurrency((report.overview.overdue_outstanding_cents || 0) / 100)} still open`,
+        href: "/invoices",
+        tone: "red",
+      });
+    }
+
+    problemJobs.slice(0, 3).forEach((job) => {
+      items.push({
+        id: `problem-${job.id}`,
+        title: `${job.customerName} needs ops help`,
+        subtitle: `${statusMeta(job.currentStatus).label} · ${job.jobNumber}`,
+        href: `/jobs/${job.jobNumber}`,
+        tone: "red",
+      });
+    });
+
+    stalePtoJobs.slice(0, 3).forEach((job) => {
+      const age = daysSince(getJobWorkflowDate(job));
+      items.push({
+        id: `pto-${job.id}`,
+        title: `${job.customerName} is stuck in PTO`,
+        subtitle: `${statusMeta(job.currentStatus).label} for ${age} day${age === 1 ? "" : "s"}`,
+        href: `/jobs/${job.jobNumber}`,
+        tone: "amber",
+      });
+    });
+
+    highUrgencyService.slice(0, 2).forEach((item) => {
+      items.push({
+        id: `svc-${item.id}`,
+        title: item.issue,
+        subtitle: `${item.customer} · ${item.jobNumber}`,
+        href: "/service",
+        tone: "red",
+      });
+    });
+
+    return items.slice(0, 7);
+  }, [canSeeFinancials, highUrgencyService, problemJobs, report, stalePtoJobs]);
+
+  const actionCards = [
+    {
+      key: "all",
+      title: "All active jobs",
+      count: activeJobs.length,
+      detail: "Open pipeline across installs, inspection, PTO, and billing.",
+      footnote: `${jobs.length} total records in the system`,
+      href: "/jobs",
+      icon: ClipboardList,
+      tone: "slate",
+    },
+    {
+      key: "scheduled",
+      title: "Scheduled installs",
+      count: scheduledJobs.length,
+      detail: "Crew-ready jobs that should be moving this week.",
+      footnote: `${todaySchedule.filter((item) => item.type === "Install").length} installs on today's board`,
+      href: "/jobs?queue=scheduled",
+      icon: CalendarDays,
+      tone: "blue",
+    },
+    ...(canSeeFinancials ? [{
+      key: "m1",
+      title: "Ready for M1",
+      count: readyForM1.length,
+      detail: "Install done or inspection underway, billing should move quickly.",
+      footnote: "Open the jobs board on the M1 queue",
+      href: "/jobs?queue=m1",
+      icon: CircleDollarSign,
+      tone: "green",
+    }] : []),
+    {
+      key: "inspection",
+      title: "Inspection queue",
+      count: inspectionQueue.length,
+      detail: "Jobs that need inspection scheduling, follow-through, or fixes.",
+      footnote: `${problemJobs.filter((job) => job.currentStatus === "inspection_failed").length} failed inspections`,
+      href: "/jobs?queue=inspection",
+      icon: ClipboardList,
+      tone: "amber",
+    },
+    {
+      key: "pto",
+      title: "PTO watch",
+      count: ptoWatch.length,
+      detail: "Passed inspections and submitted PTO files that still need movement.",
+      footnote: `${stalePtoJobs.length} sitting 7+ days`,
+      href: "/jobs",
+      icon: SunMedium,
+      tone: "violet",
+    },
+    ...(canSeeFinancials ? [{
+      key: "m2",
+      title: "Ready for M2",
+      count: readyForM2.length,
+      detail: "PTO-granted jobs ready for final billing and closeout.",
+      footnote: "Open the jobs board on the M2 queue",
+      href: "/jobs?queue=m2",
+      icon: CircleDollarSign,
+      tone: "violet",
+    }] : []),
+    {
+      key: "issues",
+      title: "Problem jobs",
+      count: problemJobs.length,
+      detail: "On-hold jobs and failed inspections that need intervention.",
+      footnote: `${highUrgencyService.length} high-urgency service items`,
+      href: "/jobs?queue=issues",
+      icon: AlertTriangle,
+      tone: "red",
+    },
+    ...(canSeeFinancials ? [{
+      key: "collections",
+      title: "Unpaid follow-up",
+      count: collectionsQueue.length,
+      detail: "Jobs with outstanding balances that still need attention.",
+      footnote: `${report?.overview?.overdue_invoice_count || 0} overdue invoices`,
+      href: "/jobs?queue=collections",
+      icon: CircleDollarSign,
+      tone: "amber",
+    }] : []),
+  ];
 
   return (
     <AppShell>
-      <div
-        className="page-header"
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}
-      >
-        <div>
-          <h1>Operations dashboard</h1>
-          <p>Normalized overview of jobs, billing, schedule, and issues.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
+        <div className="page-header" style={{ marginBottom: 0 }}>
+          <h1>Operations home</h1>
+          <p>Start here, then jump straight into the queue that needs work right now.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <PeriodFilter value={period} onChange={setPeriod} />
-          <button
-            onClick={() => setHidden((value) => !value)}
-            title={hidden ? "Show numbers" : "Hide numbers"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              border: "1px solid var(--border-strong)",
-              background: hidden ? "var(--text-primary)" : "transparent",
-              color: hidden ? "var(--accent-text)" : "var(--text-secondary)",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600, paddingTop: 6 }}>
+          {loading ? "Loading live operations snapshot..." : `${activeJobs.length} active jobs in motion`}
         </div>
       </div>
 
-      <div className="stat-grid">
-        {canSeeFinancials ? (
-          <>
-            <div className="stat-card">
-              <div className="stat-label">Total invoiced</div>
-              <div className="stat-value">{mask(formatCurrency(totalInvoiced / 100))}</div>
-              <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>
-                {mask(formatCurrency(totalInvoiced / 100))} selected window
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Collected</div>
-              <div className="stat-value">{mask(formatCurrency(totalCollected / 100))}</div>
-              <div className="stat-detail" style={{ color: "var(--text-tertiary)" }}>
-                {mask(activeJobs)} active in period
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="stat-card">
-              <div className="stat-label">Active jobs</div>
-              <div className="stat-value">{activeJobs}</div>
-              <div className="stat-detail">Operational jobs in the selected window</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Scheduled installs</div>
-              <div className="stat-value">{scheduledJobs}</div>
-              <div className="stat-detail">Crew-ready installs in the selected window</div>
-            </div>
-          </>
-        )}
-        <div className="stat-card">
-          <div className="stat-label">Open service</div>
-          <div className="stat-value">{openService}</div>
-          <div className="stat-detail">Holds and failed inspections</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Permits pending</div>
-          <div className="stat-value">{pendingPermits}</div>
-          <div className="stat-detail">Needs permit / PTO action</div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
+        {actionCards.map((card) => (
+          <ActionCard key={card.key} {...card} />
+        ))}
       </div>
 
-      <div className="card" style={{ padding: "14px 20px", marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, display: "flex", alignItems: "center", gap: 7 }}>
-          <ClipboardList size={14} />
-          Pipeline stages
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {PIPELINE_STAGES.map(({ label, display, badge }) => (
-            <Link key={label} href="/jobs" style={{ textDecoration: "none" }}>
-              <div
-                className={`badge ${badge}`}
-                style={{ padding: "5px 14px", display: "flex", alignItems: "center", gap: 6 }}
-              >
-                {label === "on_hold" && <AlertTriangle size={10} />}
-                {display}
-                <span style={{ fontWeight: 700 }}>{stageCounts[label]}</span>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: 16, marginBottom: 16, alignItems: "flex-start" }}>
+        <div className="card" style={{ padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Today and next up</div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Installs and inspections that are actually on deck.
               </div>
+            </div>
+            <Link href="/scheduling" style={{ fontSize: 12, color: "var(--text-secondary)", textDecoration: "none" }}>
+              Open schedule
             </Link>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16, alignItems: "flex-start" }}>
-        <div className="card" style={{ padding: "18px 20px" }}>
-          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14, display: "flex", alignItems: "center", gap: 7 }}>
-            <AlertTriangle size={14} style={{ color: "var(--amber)" }} />
-            Needs attention
           </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {canSeeFinancials && overdueInvoices > 0 && (
-              <Link href="/reports" style={{ textDecoration: "none" }}>
-                <div style={{ background: "var(--red-bg)", borderRadius: "var(--radius-md)", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>Overdue invoices</div>
-                    <div style={{ fontSize: 12, color: "var(--red)" }}>
-                      {overdueInvoices} invoice{overdueInvoices !== 1 ? "s" : ""} - {mask(formatCurrency(totalOutstanding / 100))} outstanding
+            {loading ? (
+              <div className="empty-state" style={{ padding: 26 }}>Loading schedule...</div>
+            ) : [...todaySchedule, ...upcomingSchedule].slice(0, 6).map((item) => {
+              const isToday = isSameDay(item.parsedDate, today);
+              return (
+                <Link key={item.id} href="/scheduling" style={{ textDecoration: "none" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "var(--radius-md)",
+                      border: "1px solid var(--border)",
+                      background: isToday ? "var(--surface-2)" : "var(--surface)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{item.customerName}</div>
+                        <span className="mono badge badge-slate">{item.jobNumber}</span>
+                        {isToday ? <span className="badge badge-blue">Today</span> : null}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>{item.site}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                        {formatDate(item.date)} · {item.type} · {item.startTime}
+                        {item.crewNames?.length ? ` · ${item.crewNames.join(", ")}` : ""}
+                      </div>
                     </div>
+                    <ChevronRight size={15} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
                   </div>
-                  <span className="badge badge-red">Overdue</span>
-                </div>
-              </Link>
-            )}
-            {issueJobs.slice(0, 5).map((job) => (
-              <Link key={job.id} href={`/jobs/${job.jobNumber}`} style={{ textDecoration: "none" }}>
-                <div style={{ background: "var(--red-bg)", borderRadius: "var(--radius-md)", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>Issue job - {job.customerName}</div>
-                    <div style={{ fontSize: 12, color: "var(--red)" }}>{job.jobNumber} - {job.currentStatus}</div>
-                  </div>
-                  <span className="badge badge-red">Issue</span>
-                </div>
-              </Link>
-            ))}
-            {highServiceItems.map((item) => (
-              <Link key={item.id} href="/service" style={{ textDecoration: "none" }}>
-                <div style={{ background: "var(--red-bg)", borderRadius: "var(--radius-md)", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: "var(--red-text)" }}>High urgency - {item.issue}</div>
-                    <div style={{ fontSize: 12, color: "var(--red)" }}>{item.jobNumber} - {item.customer}</div>
-                  </div>
-                  <span className="badge badge-red">High</span>
-                </div>
-              </Link>
-            ))}
-            {(!canSeeFinancials || overdueInvoices === 0) && issueJobs.length === 0 && highServiceItems.length === 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--green)", fontSize: 13, padding: "8px 0" }}>
-                <CheckCircle2 size={15} />
-                No blockers right now - normalized data looks clean.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "18px 20px" }}>
-          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14, display: "flex", alignItems: "center", gap: 7 }}>
-            <CalendarDays size={14} />
-            Coming up
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {upcomingSchedule.map((item) => (
-              <Link key={item.id} href="/scheduling" style={{ textDecoration: "none" }}>
-                <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>{item.customerName}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-                      {formatDate(item.date)} - {item.startTime} - {(item.crewNames || []).join(", ")}
-                    </div>
-                  </div>
-                  <span className={`badge ${statusBadgeClass(item.type)}`}>{item.type}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 7 }}>
-            <ClipboardList size={14} />
-            Active job pipeline
-            <span style={{ fontWeight: 400, color: "var(--text-secondary)", fontSize: 12 }}>({activeJobList.length})</span>
-          </div>
-          <Link href="/jobs" style={{ fontSize: 12, color: "var(--text-secondary)", textDecoration: "none" }}>View all -&gt;</Link>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Customer</th>
-                <th>Job ID</th>
-                <th>Town</th>
-                <th>Status</th>
-                <th>Next date</th>
-                {canSeeFinancials ? <th>Outstanding</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={canSeeFinancials ? 6 : 5} className="empty-state">Loading dashboard...</td>
-                </tr>
-              ) : activeJobList.slice(0, 50).map((job) => {
-                const isIssue = ["on_hold", "inspection_failed"].includes(job.currentStatus);
-                return (
-                  <tr key={job.id} style={isIssue ? { background: "var(--red-bg)" } : undefined}>
-                    <td style={{ fontWeight: 500 }}>
-                      {isIssue && <AlertTriangle size={11} style={{ color: "var(--red)", marginRight: 4, verticalAlign: "middle" }} />}
-                      {job.customerName}
-                    </td>
-                    <td><span className="mono badge badge-slate">{job.jobNumber}</span></td>
-                    <td style={{ color: "var(--text-secondary)" }}>{job.address?.city}{job.address?.state ? `, ${job.address.state}` : ""}</td>
-                    <td><span className={`badge ${statusBadgeClass(job.currentStatus)}`}>{job.currentStatus}</span></td>
-                    <td style={{ color: "var(--text-secondary)" }}>{formatDate(job.installScheduledAt || job.installCompletedAt || job.ptoGrantedAt || job.currentStatusChangedAt)}</td>
-                  {canSeeFinancials ? <td style={{ fontWeight: 500 }}>{mask(formatCurrency((job.financialSummary?.outstandingCents || 0) / 100))}</td> : null}
-                </tr>
+                </Link>
               );
             })}
-            </tbody>
-          </table>
+
+            {!loading && todaySchedule.length === 0 && upcomingSchedule.length === 0 ? (
+              <div className="empty-state" style={{ padding: 26 }}>
+                Nothing is scheduled right now.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Needs attention now</div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                The handful of things most likely to bite you if ignored.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {loading ? (
+              <div className="empty-state" style={{ padding: 26 }}>Loading attention items...</div>
+            ) : attentionItems.length > 0 ? (
+              attentionItems.map((item) => (
+                <Link key={item.id} href={item.href} style={{ textDecoration: "none" }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "var(--radius-md)",
+                      border: `1px solid ${item.tone === "red" ? "#fecaca" : "#fde68a"}`,
+                      background: item.tone === "red" ? "#fef2f2" : "#fffbeb",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, color: item.tone === "red" ? "#991b1b" : "#92400e", marginBottom: 4 }}>
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: item.tone === "red" ? "#b91c1c" : "#a16207" }}>{item.subtitle}</div>
+                    </div>
+                    <ChevronRight size={15} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--green)", fontSize: 13, padding: "8px 0" }}>
+                <CheckCircle2 size={15} />
+                Nothing urgent is bubbling up right now.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "flex-start" }}>
+        <div className="card" style={{ padding: "18px 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Jobs to open first</div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                A short list of open jobs that are already throwing off signals.
+              </div>
+            </div>
+            <Link href="/jobs" style={{ fontSize: 12, color: "var(--text-secondary)", textDecoration: "none" }}>
+              Open jobs board
+            </Link>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {loading ? (
+              <div className="empty-state" style={{ padding: 26 }}>Loading jobs...</div>
+            ) : problemJobs.slice(0, 3).map((job) => (
+              <JobListItem
+                key={job.id}
+                job={job}
+                href={`/jobs/${job.jobNumber}`}
+                tone="alert"
+                note={`Workflow date ${formatDate(getJobWorkflowDate(job))}`}
+              />
+            ))}
+
+            {!loading && problemJobs.length === 0 && stalePtoJobs.slice(0, 3).map((job) => (
+              <JobListItem
+                key={job.id}
+                job={job}
+                href={`/jobs/${job.jobNumber}`}
+                note={`Waiting in ${statusMeta(job.currentStatus).label} since ${formatDate(getJobWorkflowDate(job))}`}
+              />
+            ))}
+
+            {!loading && problemJobs.length === 0 && stalePtoJobs.length === 0 ? (
+              <div className="empty-state" style={{ padding: 26 }}>
+                No obvious problem jobs right now.
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </AppShell>

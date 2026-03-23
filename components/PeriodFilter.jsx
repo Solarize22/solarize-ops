@@ -3,7 +3,7 @@
 export const PERIODS = ["Today", "This week", "Next week", "This month", "All"];
 
 export function parseJobDate(job) {
-  const raw = job.installDate || job.createdAt || "";
+  const raw = job.filterDate || job.installDate || job.createdAt || "";
   if (!raw) return null;
   const d = new Date(raw);
   return isNaN(d.getTime()) ? null : d;
@@ -24,9 +24,9 @@ export function filterByPeriod(jobs, period) {
   nextWeekEnd.setDate(nextWeekStart.getDate() + 7);
 
   return jobs.filter(job => {
+    if (period === "All") return true;
     const d = parseJobDate(job);
     if (!d) return false;
-    if (period === "All") return true;
     if (period === "Today") return d >= startOfToday && d < endOfToday;
     if (period === "This week") return d >= startOfWeek && d < endOfWeek;
     if (period === "Next week") return d >= nextWeekStart && d < nextWeekEnd;

@@ -46,6 +46,8 @@ export async function GET() {
         j.current_status,
         j.current_status_changed_at,
         j.notes,
+        inspection_summary.latest_inspection_scheduled_at,
+        inspection_summary.latest_inspection_completed_at,
         rep.full_name as rep_name,
         coalesce(
           json_agg(distinct crew.full_name) filter (where crew.full_name is not null),
@@ -54,6 +56,13 @@ export async function GET() {
         coalesce(sum(case when i.status <> 'void' then i.total_cents else 0 end), 0)::int as total_invoiced_cents,
         coalesce(sum(case when i.status <> 'void' then i.balance_cents else 0 end), 0)::int as outstanding_cents
       from jobs j
+      left join lateral (
+        select
+          max(scheduled_at) as latest_inspection_scheduled_at,
+          max(completed_at) as latest_inspection_completed_at
+        from inspections ins
+        where ins.job_id = j.id
+      ) inspection_summary on true
       left join app_users rep on rep.id = j.rep_user_id
       left join job_crew_assignments a on a.job_id = j.id
       left join app_users crew on crew.id = a.user_id
@@ -69,7 +78,11 @@ export async function GET() {
               and lower(ux.full_name) = lower(${installerName})
           )
         )
-      group by j.id, rep.full_name
+      group by
+        j.id,
+        rep.full_name,
+        inspection_summary.latest_inspection_scheduled_at,
+        inspection_summary.latest_inspection_completed_at
       order by j.created_at desc
     `;
 
@@ -99,6 +112,8 @@ export async function GET() {
       roofType: row.roof_type,
       installScheduledAt: row.install_scheduled_at,
       installCompletedAt: row.install_completed_at,
+      inspectionScheduledAt: row.latest_inspection_scheduled_at,
+      inspectionCompletedAt: row.latest_inspection_completed_at,
       ptoSubmittedAt: row.pto_submitted_at,
       ptoGrantedAt: row.pto_granted_at,
       currentStatus: row.current_status,
