@@ -617,8 +617,8 @@ export default function JobDetailPage() {
                 </tbody></table>
               </div>
             ) : null}
-            {isOwner && invoices.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {isOwner && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 {!invoices.find((inv) => inv.invoiceType === "M1") && (
                   <button
                     className="btn btn-outline"
