@@ -25,11 +25,13 @@ function CreateInvoiceForm() {
   const searchParams = useSearchParams();
   const { loading: roleLoading, isOwner } = useUserRole();
 
-  const jobId = searchParams.get("jobId");
+  const jobIdParam = searchParams.get("jobId");
   const typeParam = searchParams.get("type");
 
+  const [jobInput, setJobInput] = useState(jobIdParam || "");
   const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [jobLookupError, setJobLookupError] = useState("");
+  const [loading, setLoading] = useState(!!jobIdParam);
   const [error, setError] = useState("");
   const [message, setMessage] = useState({ type: "", text: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -43,15 +45,17 @@ function CreateInvoiceForm() {
     memo: "",
   });
 
+  const jobId = job?.id || jobIdParam;
+
   useEffect(() => {
-    if (!jobId) { setError("Job ID is required"); setLoading(false); return; }
+    if (!jobIdParam) { setLoading(false); return; }
     async function loadJob() {
       try {
-        const res = await fetch(`/api/v2/jobs/${jobId}`);
+        const res = await fetch(`/api/v2/jobs/${jobIdParam}`);
         if (!res.ok) throw new Error("Job not found");
         const data = await res.json();
         setJob(data.job);
-        const invoicesRes = await fetch(`/api/v2/jobs/${jobId}/invoices`);
+        const invoicesRes = await fetch(`/api/v2/jobs/${jobIdParam}/invoices`);
         if (invoicesRes.ok) {
           const invoices = await invoicesRes.json();
           const type = typeParam || "M1";
@@ -65,16 +69,32 @@ function CreateInvoiceForm() {
       }
     }
     loadJob();
-  }, [jobId, typeParam]);
+  }, [jobIdParam, typeParam]);
 
   useEffect(() => {
     if (!roleLoading && !isOwner) router.replace("/");
   }, [roleLoading, isOwner, router]);
 
+  async function handleJobLookup(e) {
+    e.preventDefault();
+    setJobLookupError("");
+    setJob(null);
+    setError("");
+    if (!jobInput.trim()) return;
+    try {
+      const res = await fetch(`/api/v2/jobs/${jobInput.trim()}`);
+      if (!res.ok) throw new Error("Job not found — check the job number");
+      const data = await res.json();
+      setJob(data.job);
+    } catch (err) {
+      setJobLookupError(err.message || "Job not found");
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setMessage({ type: "", text: "" });
-    if (!jobId) { setMessage({ type: "error", text: "Job ID is required" }); return; }
+    if (!jobId) { setMessage({ type: "error", text: "Please look up a job first" }); return; }
     if (!form.invoiceNumber.trim()) { setMessage({ type: "error", text: "Invoice number is required" }); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { setMessage({ type: "error", text: "Amount must be greater than 0" }); return; }
     setSubmitting(true);
@@ -126,8 +146,28 @@ function CreateInvoiceForm() {
 
       <div className="page-header">
         <h1>Create invoice</h1>
-        <p>{job ? `${job.customerName} • Job ${job.jobNumber}` : "Loading job details..."}</p>
+        <p>{job ? `${job.customerName} • Job ${job.jobNumber}` : jobIdParam ? "Loading job details..." : "Enter a job number to get started"}</p>
       </div>
+
+      {!job && (
+        <div style={{ maxWidth: 600, marginBottom: 20 }}>
+          <div className="card card-elevated">
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Find job</div>
+            <form onSubmit={handleJobLookup} style={{ display: "flex", gap: 10 }}>
+              <input
+                value={jobInput}
+                onChange={(e) => setJobInput(e.target.value)}
+                placeholder="Job number (e.g. SOL-001)"
+                style={{ flex: 1 }}
+              />
+              <button className="btn btn-primary" type="submit">Look up</button>
+            </form>
+            {jobLookupError && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "var(--red-text)" }}>{jobLookupError}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: "12px 16px", marginBottom: 16, borderRadius: "var(--radius-lg)", background: "var(--red-bg)", border: "1px solid var(--red)", color: "var(--red-text)", fontSize: 13 }}>
@@ -141,7 +181,7 @@ function CreateInvoiceForm() {
         </div>
       )}
 
-      <div style={{ maxWidth: 600 }}>
+      {job && <div style={{ maxWidth: 600 }}>
         <div className="card card-elevated">
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
             <FormField label="Invoice type">
@@ -184,7 +224,7 @@ function CreateInvoiceForm() {
             </div>
           </form>
         </div>
-      </div>
+      </div>}
     </>
   );
 }

@@ -94,9 +94,14 @@ export default function InvoicesPage() {
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Invoices</h1>
-        <p>Review milestone billing, aging balances, and payment performance across the pipeline.</p>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1>Invoices</h1>
+          <p>Review milestone billing, aging balances, and payment performance across the pipeline.</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => router.push("/invoices/new")} style={{ flexShrink: 0, marginTop: 4 }}>
+          New Invoice
+        </button>
       </div>
 
       {overdueItems.length > 0 && (
