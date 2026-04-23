@@ -8,9 +8,9 @@ import { ArrowLeft, AlertCircle } from "lucide-react";
 
 const INVOICE_TYPES = ["M1", "M2", "ADDER", "SPECIAL"];
 
-function FormField({ label, children, span = 1, hint = "" }) {
+function FormField({ label, children, hint = "" }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6, gridColumn: span > 1 ? `span ${span}` : undefined }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".05em" }}>
         {label}
       </span>
@@ -28,10 +28,10 @@ function CreateInvoiceForm() {
   const jobIdParam = searchParams.get("jobId");
   const typeParam = searchParams.get("type");
 
-  const [jobInput, setJobInput] = useState(jobIdParam || "");
+  const [allJobs, setAllJobs] = useState([]);
+  const [selectedJobId, setSelectedJobId] = useState(jobIdParam || "");
   const [job, setJob] = useState(null);
-  const [jobLookupError, setJobLookupError] = useState("");
-  const [loading, setLoading] = useState(!!jobIdParam);
+  const [loadingJobs, setLoadingJobs] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState({ type: "", text: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -45,61 +45,49 @@ function CreateInvoiceForm() {
     memo: "",
   });
 
-  const jobId = job?.id || jobIdParam;
-
+  // Load all active jobs for the dropdown
   useEffect(() => {
-    if (!jobIdParam) { setLoading(false); return; }
-    async function loadJob() {
-      try {
-        const res = await fetch(`/api/v2/jobs/${jobIdParam}`);
-        if (!res.ok) throw new Error("Job not found");
-        const data = await res.json();
+    fetch("/api/v2/jobs")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setAllJobs(Array.isArray(data) ? data : (data.jobs || [])))
+      .catch(() => setAllJobs([]))
+      .finally(() => setLoadingJobs(false));
+  }, []);
+
+  // Load selected job details + check for existing invoices
+  useEffect(() => {
+    if (!selectedJobId) { setJob(null); setError(""); return; }
+    setError("");
+    fetch(`/api/v2/jobs/${selectedJobId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
         setJob(data.job);
-        const invoicesRes = await fetch(`/api/v2/jobs/${jobIdParam}/invoices`);
-        if (invoicesRes.ok) {
-          const invoices = await invoicesRes.json();
-          const type = typeParam || "M1";
-          const existing = invoices.find((inv) => inv.invoiceType === type);
-          if (existing) setError(`${type} invoice already exists for this job`);
-        }
-      } catch (err) {
-        setError(err.message || "Failed to load job");
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadJob();
-  }, [jobIdParam, typeParam]);
+        return fetch(`/api/v2/jobs/${selectedJobId}/invoices`);
+      })
+      .then((r) => r && r.ok ? r.json() : null)
+      .then((invoices) => {
+        if (!invoices) return;
+        const type = form.invoiceType;
+        const existing = invoices.find((inv) => inv.invoiceType === type);
+        if (existing) setError(`A ${type} invoice already exists for this job`);
+      })
+      .catch(() => {});
+  }, [selectedJobId, form.invoiceType]);
 
   useEffect(() => {
     if (!roleLoading && !isOwner) router.replace("/");
   }, [roleLoading, isOwner, router]);
 
-  async function handleJobLookup(e) {
-    e.preventDefault();
-    setJobLookupError("");
-    setJob(null);
-    setError("");
-    if (!jobInput.trim()) return;
-    try {
-      const res = await fetch(`/api/v2/jobs/${jobInput.trim()}`);
-      if (!res.ok) throw new Error("Job not found — check the job number");
-      const data = await res.json();
-      setJob(data.job);
-    } catch (err) {
-      setJobLookupError(err.message || "Job not found");
-    }
-  }
-
   async function handleSubmit(e) {
     e.preventDefault();
     setMessage({ type: "", text: "" });
-    if (!jobId) { setMessage({ type: "error", text: "Please look up a job first" }); return; }
+    if (!selectedJobId) { setMessage({ type: "error", text: "Please select a job" }); return; }
     if (!form.invoiceNumber.trim()) { setMessage({ type: "error", text: "Invoice number is required" }); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { setMessage({ type: "error", text: "Amount must be greater than 0" }); return; }
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/v2/jobs/${jobId}/invoices`, {
+      const res = await fetch(`/api/v2/jobs/${selectedJobId}/invoices`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -146,49 +134,48 @@ function CreateInvoiceForm() {
 
       <div className="page-header">
         <h1>Create invoice</h1>
-        <p>{job ? `${job.customerName} • Job ${job.jobNumber}` : jobIdParam ? "Loading job details..." : "Enter a job number to get started"}</p>
+        <p>{job ? `${job.customerName} • Job ${job.jobNumber}` : "Select a job to create an invoice"}</p>
       </div>
 
-      {!job && (
-        <div style={{ maxWidth: 600, marginBottom: 20 }}>
-          <div className="card card-elevated">
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Find job</div>
-            <form onSubmit={handleJobLookup} style={{ display: "flex", gap: 10 }}>
-              <input
-                value={jobInput}
-                onChange={(e) => setJobInput(e.target.value)}
-                placeholder="Job number (e.g. SOL-001)"
-                style={{ flex: 1 }}
-              />
-              <button className="btn btn-primary" type="submit">Look up</button>
-            </form>
-            {jobLookupError && (
-              <div style={{ marginTop: 10, fontSize: 13, color: "var(--red-text)" }}>{jobLookupError}</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ padding: "12px 16px", marginBottom: 16, borderRadius: "var(--radius-lg)", background: "var(--red-bg)", border: "1px solid var(--red)", color: "var(--red-text)", fontSize: 13 }}>
-          {error}
-        </div>
-      )}
-
       {message.text && (
-        <div style={{ padding: "12px 16px", marginBottom: 16, borderRadius: "var(--radius-lg)", background: message.type === "success" ? "var(--green-bg)" : message.type === "error" ? "var(--red-bg)" : "var(--surface-2)", border: message.type === "success" ? "1px solid var(--green)" : message.type === "error" ? "1px solid var(--red)" : "1px solid var(--border)", color: message.type === "success" ? "var(--green-text)" : message.type === "error" ? "var(--red-text)" : "var(--text-secondary)", fontSize: 13 }}>
+        <div style={{ padding: "12px 16px", marginBottom: 16, borderRadius: "var(--radius-lg)", background: message.type === "error" ? "var(--red-bg)" : "var(--green-bg)", border: `1px solid ${message.type === "error" ? "var(--red)" : "var(--green)"}`, color: message.type === "error" ? "var(--red-text)" : "var(--green-text)", fontSize: 13 }}>
           {message.text}
         </div>
       )}
 
-      {job && <div style={{ maxWidth: 600 }}>
+      <div style={{ maxWidth: 600 }}>
         <div className="card card-elevated">
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
+
+            <FormField label="Job">
+              <select
+                value={selectedJobId}
+                onChange={(e) => setSelectedJobId(e.target.value)}
+                disabled={!!jobIdParam || loadingJobs}
+              >
+                <option value="">{loadingJobs ? "Loading jobs..." : "Select a job..."}</option>
+                {allJobs.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {j.jobNumber} — {j.customerName}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            {error && (
+              <div style={{ padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--red-bg)", border: "1px solid var(--red)", color: "var(--red-text)", fontSize: 13 }}>
+                {error}
+              </div>
+            )}
+
             <FormField label="Invoice type">
-              <select value={form.invoiceType} onChange={(e) => setForm((prev) => ({ ...prev, invoiceType: e.target.value }))} disabled={!!typeParam}>
+              <select
+                value={form.invoiceType}
+                onChange={(e) => setForm((prev) => ({ ...prev, invoiceType: e.target.value }))}
+                disabled={!!typeParam}
+              >
                 {INVOICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
-              {typeParam && <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>Type specified in request</span>}
             </FormField>
 
             <FormField label="Invoice number">
@@ -209,22 +196,22 @@ function CreateInvoiceForm() {
             </div>
 
             <FormField label="Description">
-              <input value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} placeholder="e.g., Milestone 1 - Equipment and labor" />
+              <input value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} placeholder="e.g., Milestone 1 – Equipment and labor" />
             </FormField>
 
-            <FormField label="Memo (internal notes)">
-              <textarea value={form.memo} onChange={(e) => setForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="Optional internal notes" style={{ minHeight: 80, fontFamily: "var(--font-mono)", fontSize: 13 }} />
+            <FormField label="Memo">
+              <textarea value={form.memo} onChange={(e) => setForm((prev) => ({ ...prev, memo: e.target.value }))} placeholder="Internal notes" style={{ minHeight: 80, fontFamily: "var(--font-mono)", fontSize: 13 }} />
             </FormField>
 
             <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-              <button className="btn btn-primary" type="submit" disabled={submitting || !!error}>
+              <button className="btn btn-primary" type="submit" disabled={submitting || !selectedJobId || !!error}>
                 {submitting ? "Creating..." : "Create invoice"}
               </button>
               <button className="btn btn-ghost" type="button" onClick={() => router.back()}>Cancel</button>
             </div>
           </form>
         </div>
-      </div>}
+      </div>
     </>
   );
 }
