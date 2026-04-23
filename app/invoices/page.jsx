@@ -236,17 +236,26 @@ export default function InvoicesPage() {
                 </tr>
               )}
               {filtered.map((inv) => (
-                <tr key={inv.id} style={inv.status === "Overdue" ? { background: "#fff5f5" } : {}}>
+                <tr
+                  key={inv.id}
+                  onClick={() => router.push(`/invoices/${inv.id}`)}
+                  style={{
+                    ...(inv.status === "Overdue" ? { background: "#fff5f5" } : {}),
+                    cursor: "pointer",
+                  }}
+                >
                   <td>
                     <span className="mono badge badge-slate">{inv.invoiceNumber}</span>
                   </td>
                   <td style={{ fontWeight: 500 }}>
-                    <Link href={`/jobs/${inv.jobNumber}`} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", textDecoration: "none" }}>
-                      {inv.customerName}
-                    </Link>
+                    {inv.customerName}
                   </td>
                   <td>
-                    <Link href={`/jobs/${inv.jobNumber}`} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
+                    <Link
+                      href={`/jobs/${inv.jobNumber}`}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ textDecoration: "none" }}
+                    >
                       <span className="mono badge badge-slate">{inv.jobNumber}</span>
                     </Link>
                   </td>
