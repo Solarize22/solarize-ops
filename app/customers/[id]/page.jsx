@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { formatCurrency, formatDate, formatDateTimeParts } from "@/lib/utils";
 import { AlertTriangle, ArrowLeft, CalendarDays, Mail, MessageSquareMore, NotebookPen, Phone, UserRound } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
@@ -76,6 +77,25 @@ function SummaryCard({ label, value, detail = "", strong = false }) {
   );
 }
 
+function ComposerCard({ title, description = "", onClose, children }) {
+  return (
+    <div className="composer-card">
+      <div className="composer-card-header">
+        <div>
+          <div className="composer-card-title">{title}</div>
+          {description ? <div className="composer-card-description">{description}</div> : null}
+        </div>
+        {onClose ? (
+          <button type="button" className="btn btn-ghost" onClick={onClose} style={{ minHeight: 30, padding: "4px 10px" }}>
+            Close
+          </button>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const { canSeeFinancials, isOwner, isAdmin, role, loading: roleLoading } = useUserRole();
@@ -85,9 +105,18 @@ export default function CustomerDetailPage() {
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [composers, setComposers] = useState({ contact: false, task: false });
   const [contactForm, setContactForm] = useState({ jobId: "", channel: "call", direction: "outbound", summary: "", details: "", contactedAt: "" });
   const [taskForm, setTaskForm] = useState({ jobId: "", title: "", details: "", priority: "high", dueAt: "", ownerUserId: "" });
   const canManageOps = isOwner || isAdmin || role === "ops";
+
+  function toggleComposer(key) {
+    setComposers((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function closeComposer(key) {
+    setComposers((current) => ({ ...current, [key]: false }));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +187,7 @@ export default function CustomerDetailPage() {
         contactedAt: new Date().toISOString().slice(0, 16),
       }));
       setMessage({ type: "success", text: `Communication logged on ${payload.jobNumber || primaryJob?.jobNumber || "the customer record"}.` });
+      closeComposer("contact");
       setRefreshKey((value) => value + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to create customer contact log" });
@@ -182,6 +212,7 @@ export default function CustomerDetailPage() {
         dueAt: "",
       }));
       setMessage({ type: "success", text: `Task created on ${payload.jobNumber || primaryJob?.jobNumber || "the customer record"}.` });
+      closeComposer("task");
       setRefreshKey((value) => value + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to create customer follow-up task" });
@@ -206,51 +237,47 @@ export default function CustomerDetailPage() {
   return (
     <AppShell>
       <div style={{ marginBottom: 18 }}>
-        <Link href="/customers" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none", color: "var(--text-secondary)", fontSize: 12, marginBottom: 12 }}>
+        <Link href="/customers" className="detail-back-link">
           <ArrowLeft size={13} /> Back to customers
         </Link>
 
-        <div className="card" style={{ padding: "22px 24px", background: "linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em", margin: 0 }}>{customer.name}</h1>
-                <span className={`badge ${customer.needsFollowUp ? customer.atRiskJobCount > 0 || customer.overdueTaskCount > 0 ? "badge-red" : "badge-amber" : "badge-green"}`}>
-                  {customer.needsFollowUp ? (customer.atRiskJobCount > 0 || customer.overdueTaskCount > 0 ? "At risk" : "Needs follow-up") : "Healthy"}
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>
-                {[customer.address?.street1, customer.address?.street2, customer.address?.city, customer.address?.state, customer.address?.postalCode].filter(Boolean).join(", ") || "Address not set"}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {customer.phone ? (
-                  <a href={`tel:${customer.phone}`} className="btn btn-outline">
-                    <Phone size={13} />
-                    {customer.phone}
-                  </a>
-                ) : null}
-                {customer.email ? (
-                  <a href={`mailto:${customer.email}`} className="btn btn-outline">
-                    <Mail size={13} />
-                    {customer.email}
-                  </a>
-                ) : null}
-                {(customer.repNames || []).length > 0 ? (
-                  <span className="btn btn-ghost" style={{ cursor: "default" }}>
-                    <UserRound size={13} />
-                    Rep: {customer.repNames.join(", ")}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(140px, 1fr))", gap: 10, minWidth: 420 }}>
+        <WorkspaceHeader
+          eyebrow="Customer Workspace"
+          title={customer.name}
+          description={[customer.address?.street1, customer.address?.street2, customer.address?.city, customer.address?.state, customer.address?.postalCode].filter(Boolean).join(", ") || "Address not set"}
+          actions={(
+            <span className={`badge ${customer.needsFollowUp ? customer.atRiskJobCount > 0 || customer.overdueTaskCount > 0 ? "badge-red" : "badge-amber" : "badge-green"}`}>
+              {customer.needsFollowUp ? (customer.atRiskJobCount > 0 || customer.overdueTaskCount > 0 ? "At risk" : "Needs follow-up") : "Healthy"}
+            </span>
+          )}
+          aside={(
+            <div className="detail-summary-grid three compact">
               <SummaryCard label="Last contact" value={customer.lastContactAt ? <DateTimeStack value={customer.lastContactAt} /> : "Not logged"} />
               <SummaryCard label="Next follow-up" value={customer.nextFollowUpAt ? formatDate(customer.nextFollowUpAt) : "-"} strong />
               <SummaryCard label="Outstanding" value={canSeeFinancials ? formatCurrency((customer.totalOutstandingCents || 0) / 100) : `${customer.openTaskCount} open tasks`} detail={canSeeFinancials ? `${customer.openTaskCount} open tasks` : `${customer.overdueTaskCount} overdue`} />
             </div>
-          </div>
-        </div>
+          )}
+        >
+          {customer.phone ? (
+            <a href={`tel:${customer.phone}`} className="hero-chip" style={{ textDecoration: "none" }}>
+              <Phone size={13} />
+              {customer.phone}
+            </a>
+          ) : null}
+          {customer.email ? (
+            <a href={`mailto:${customer.email}`} className="hero-chip" style={{ textDecoration: "none" }}>
+              <Mail size={13} />
+              {customer.email}
+            </a>
+          ) : null}
+          {(customer.repNames || []).length > 0 ? (
+            <span className="hero-chip">
+              <UserRound size={13} />
+              Rep: {customer.repNames.join(", ")}
+            </span>
+          ) : null}
+          <span className="hero-chip">{customer.totalJobCount} total job{customer.totalJobCount === 1 ? "" : "s"}</span>
+        </WorkspaceHeader>
       </div>
 
       {message.text ? (
@@ -269,11 +296,11 @@ export default function CustomerDetailPage() {
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 16, alignItems: "start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card" style={{ padding: "18px 20px" }}>
+      <div className="detail-shell">
+        <div className="detail-main">
+          <div className="card detail-panel">
             <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Relationship summary</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+            <div className="detail-summary-grid four">
               <SummaryCard label="Total jobs" value={customer.totalJobCount} detail={`${customer.activeJobCount} active`} />
               <SummaryCard label="At-risk jobs" value={customer.atRiskJobCount} detail={`${customer.closedJobCount} closed`} strong={customer.atRiskJobCount > 0} />
               <SummaryCard label="Open tasks" value={customer.openTaskCount} detail={`${customer.overdueTaskCount} overdue`} strong={customer.overdueTaskCount > 0} />
@@ -281,10 +308,10 @@ export default function CustomerDetailPage() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: "18px 20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div className="card detail-panel">
+            <div className="detail-panel-header">
               <MessageSquareMore size={15} style={{ color: "var(--amber)" }} />
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Related jobs</div>
+              <div className="detail-panel-title">Related jobs</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {jobs.map((job) => {
@@ -300,7 +327,7 @@ export default function CustomerDetailPage() {
                         </div>
                         <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{formatDate(job.currentStatusChangedAt)}</div>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, fontSize: 12, color: "var(--text-secondary)" }}>
+                      <div className="detail-info-grid four" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                         <div>Rep: <strong style={{ color: "var(--text-primary)" }}>{job.repName || "-"}</strong></div>
                         <div>Owner: <strong style={{ color: "var(--text-primary)" }}>{job.followUpOwnerName || "-"}</strong></div>
                         <div>Follow-up: <strong style={{ color: "var(--text-primary)" }}>{formatDate(job.nextFollowUpAt)}</strong></div>
@@ -313,10 +340,10 @@ export default function CustomerDetailPage() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: "18px 20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div className="card detail-panel">
+            <div className="detail-panel-header">
               <MessageSquareMore size={15} style={{ color: "var(--amber)" }} />
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Communication timeline</div>
+              <div className="detail-panel-title">Communication timeline</div>
             </div>
             {contactLog.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -343,11 +370,11 @@ export default function CustomerDetailPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card" style={{ padding: "18px 20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div className="detail-rail">
+          <div className="card detail-panel">
+            <div className="detail-panel-header">
               <NotebookPen size={15} style={{ color: "var(--amber)" }} />
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Relationship actions</div>
+              <div className="detail-panel-title">Relationship actions</div>
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
@@ -371,9 +398,21 @@ export default function CustomerDetailPage() {
               </div>
             ) : canManageOps ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <form onSubmit={handleContactSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>Log communication</div>
-                  <div style={{ display: "grid", gap: 10 }}>
+                <div className="composer-toolbar">
+                  <button type="button" className={`composer-chip ${composers.contact ? "active" : ""}`} onClick={() => toggleComposer("contact")}>
+                    {composers.contact ? "Hide communication log" : "Log communication"}
+                  </button>
+                  <button type="button" className={`composer-chip ${composers.task ? "active" : ""}`} onClick={() => toggleComposer("task")}>
+                    {composers.task ? "Hide task composer" : "Create task"}
+                  </button>
+                </div>
+                {composers.contact ? (
+                  <ComposerCard
+                    title="Log communication"
+                    description="Capture the latest homeowner update at the relationship level or attach it to a specific job."
+                    onClose={() => closeComposer("contact")}
+                  >
+                    <form onSubmit={handleContactSubmit} style={{ display: "grid", gap: 10 }}>
                     <select value={contactForm.jobId} onChange={(event) => setContactForm((prev) => ({ ...prev, jobId: event.target.value }))}>
                       <option value="">Relationship default{primaryJob ? ` (${primaryJob.jobNumber})` : ""}</option>
                       {jobs.map((job) => (
@@ -393,13 +432,19 @@ export default function CustomerDetailPage() {
                     <input value={contactForm.summary} onChange={(event) => setContactForm((prev) => ({ ...prev, summary: event.target.value }))} placeholder="What happened with the homeowner?" />
                     <textarea rows={3} value={contactForm.details} onChange={(event) => setContactForm((prev) => ({ ...prev, details: event.target.value }))} placeholder="Promise made, concern raised, next step..." style={{ resize: "vertical" }} />
                     <input type="datetime-local" value={contactForm.contactedAt} onChange={(event) => setContactForm((prev) => ({ ...prev, contactedAt: event.target.value }))} />
-                    <button className="btn btn-outline" type="submit">Add communication log</button>
-                  </div>
-                </form>
-
-                <form onSubmit={handleTaskSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>Create follow-up task</div>
-                  <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button className="btn btn-outline" type="submit">Add communication log</button>
+                      </div>
+                    </form>
+                  </ComposerCard>
+                ) : null}
+                {composers.task ? (
+                  <ComposerCard
+                    title="Create follow-up task"
+                    description="Assign the next commitment before it slips into a note or text thread."
+                    onClose={() => closeComposer("task")}
+                  >
+                    <form onSubmit={handleTaskSubmit} style={{ display: "grid", gap: 10 }}>
                     <select value={taskForm.jobId} onChange={(event) => setTaskForm((prev) => ({ ...prev, jobId: event.target.value }))}>
                       <option value="">Relationship default{primaryJob ? ` (${primaryJob.jobNumber})` : ""}</option>
                       {jobs.map((job) => (
@@ -424,9 +469,12 @@ export default function CustomerDetailPage() {
                         </option>
                       ))}
                     </select>
-                    <button className="btn btn-outline" type="submit">Create task</button>
-                  </div>
-                </form>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button className="btn btn-outline" type="submit">Create task</button>
+                      </div>
+                    </form>
+                  </ComposerCard>
+                ) : null}
               </div>
             ) : (
               <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
@@ -435,10 +483,10 @@ export default function CustomerDetailPage() {
             )}
           </div>
 
-          <div className="card" style={{ padding: "18px 20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div className="card detail-panel">
+            <div className="detail-panel-header">
               <CalendarDays size={15} style={{ color: "var(--amber)" }} />
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Open commitments</div>
+              <div className="detail-panel-title">Open commitments</div>
             </div>
             {tasks.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -463,10 +511,10 @@ export default function CustomerDetailPage() {
             )}
           </div>
 
-          <div className="card" style={{ padding: "18px 20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div className="card detail-panel">
+            <div className="detail-panel-header">
               <AlertTriangle size={15} style={{ color: "var(--amber)" }} />
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Relationship activity</div>
+              <div className="detail-panel-title">Relationship activity</div>
             </div>
             {history.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

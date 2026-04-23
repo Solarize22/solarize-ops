@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { getAllowedStatusTransitions, getWorkflowAdvanceAction } from "@/lib/job-workflow";
 import { formatCurrency, formatDate, formatDateTimeParts } from "@/lib/utils";
 import {
@@ -164,7 +165,7 @@ function DateTimeStack({ value, align = "left" }) {
 
 function InfoGrid({ items }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "12px 14px" }}>
+    <div className="detail-info-grid three">
       {items.map((item) => (
         <div key={item.label} style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 5 }}>{item.label}</div>
@@ -177,10 +178,10 @@ function InfoGrid({ items }) {
 
 function ActionPanel({ title, icon: Icon, children }) {
   return (
-    <div className="card" style={{ padding: "18px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+    <div className="card detail-panel">
+      <div className="detail-panel-header">
         <Icon size={15} style={{ color: "var(--amber)" }} />
-        <div style={{ fontWeight: 800, fontSize: 14 }}>{title}</div>
+        <div className="detail-panel-title">{title}</div>
       </div>
       {children}
     </div>
@@ -189,6 +190,25 @@ function ActionPanel({ title, icon: Icon, children }) {
 
 function EmptyState({ text }) {
   return <div style={{ padding: "12px 0", fontSize: 13, color: "var(--text-secondary)" }}>{text}</div>;
+}
+
+function ComposerCard({ title, description = "", onClose, children }) {
+  return (
+    <div className="composer-card">
+      <div className="composer-card-header">
+        <div>
+          <div className="composer-card-title">{title}</div>
+          {description ? <div className="composer-card-description">{description}</div> : null}
+        </div>
+        {onClose ? (
+          <button type="button" className="btn btn-ghost" onClick={onClose} style={{ minHeight: 30, padding: "4px 10px" }}>
+            Close
+          </button>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
 }
 
 function MiniMetric({ label, value, strong = false }) {
@@ -258,10 +278,31 @@ export default function JobDetailPage() {
   const [invoiceForm, setInvoiceForm] = useState({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
   const [paymentForm, setPaymentForm] = useState({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [composers, setComposers] = useState({
+    install: false,
+    inspection: false,
+    revisit: false,
+    crmSettings: false,
+    contact: false,
+    task: false,
+    status: false,
+  });
   const billingRef = useRef(null);
   const statusRef = useRef(null);
   const crmRef = useRef(null);
   const canManageOps = isOwner || isAdmin || role === "ops";
+
+  function toggleComposer(key) {
+    setComposers((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function openComposer(key) {
+    setComposers((current) => ({ ...current, [key]: true }));
+  }
+
+  function closeComposer(key) {
+    setComposers((current) => ({ ...current, [key]: false }));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -486,6 +527,7 @@ export default function JobDetailPage() {
         notes: "",
       }));
       setMessage({ type: "success", text: "Inspection logged." });
+      closeComposer("inspection");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save inspection" });
@@ -516,6 +558,7 @@ export default function JobDetailPage() {
         outcome: "",
       }));
       setMessage({ type: "success", text: "Field visit logged." });
+      closeComposer("install");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save field visit" });
@@ -545,6 +588,7 @@ export default function JobDetailPage() {
         outcome: "",
       }));
       setMessage({ type: "success", text: "Field visit logged." });
+      closeComposer("revisit");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save field visit" });
@@ -649,6 +693,7 @@ export default function JobDetailPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to update follow-up details");
       setMessage({ type: "success", text: "CRM follow-up details updated." });
+      closeComposer("crmSettings");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to update follow-up details" });
@@ -671,6 +716,7 @@ export default function JobDetailPage() {
       if (!res.ok) throw new Error(data.error || "Failed to save communication log");
       setContactForm({ channel: "call", direction: "outbound", summary: "", details: "", contactedAt: new Date().toISOString().slice(0, 16) });
       setMessage({ type: "success", text: "Communication log added." });
+      closeComposer("contact");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save communication log" });
@@ -696,6 +742,7 @@ export default function JobDetailPage() {
         ownerUserId: crm?.summary?.followUpOwnerId || job?.repUserId || "",
       });
       setMessage({ type: "success", text: "Follow-up task created." });
+      closeComposer("task");
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to create follow-up task" });
@@ -769,62 +816,71 @@ export default function JobDetailPage() {
   const status = statusMeta(job.currentStatus);
   const timelineIndex = Math.max(0, TIMELINE.findIndex((item) => item.key === job.currentStatus));
   const ownerOptions = teamMembers.filter((member) => member.isActive);
+  const openFieldReturns = revisitVisits.filter((visit) => !["completed", "cancelled"].includes(visit.status)).length;
 
   return (
     <AppShell>
       <div style={{ marginBottom: 18 }}>
-        <Link href="/jobs" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none", color: "var(--text-secondary)", fontSize: 12, marginBottom: 12 }}>
+        <Link href="/jobs" className="detail-back-link">
           <ArrowLeft size={13} /> Back to jobs
         </Link>
 
-        <div className="card" style={{ padding: "22px 24px", background: "linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%)", border: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em", margin: 0 }}>{job.customerName}</h1>
-                <span className="mono badge badge-slate">{job.jobNumber}</span>
-                <span style={{ padding: "5px 10px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 12, fontWeight: 800 }}>{status.label}</span>
-                {job.customerPath ? (
-                  <Link
-                    href={job.customerPath}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, background: "var(--surface-2)", color: "var(--text-primary)", fontSize: 12, fontWeight: 700, textDecoration: "none", border: "1px solid var(--border)" }}
-                  >
-                    <UserRound size={12} />
-                    Customer record
-                  </Link>
-                ) : null}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
-                {[job.address?.street1, job.address?.city, job.address?.state, job.address?.postalCode].filter(Boolean).join(", ")}
-              </div>
-              <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>Next action: <strong style={{ color: "var(--text-primary)" }}>{nextAction(job)}</strong></div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(120px, 1fr))", gap: 10, minWidth: 360 }}>
+        <WorkspaceHeader
+          eyebrow="Job Workspace"
+          title={job.customerName}
+          description={`${[job.address?.street1, job.address?.city, job.address?.state, job.address?.postalCode].filter(Boolean).join(", ") || "Address not set"}${job.repName ? ` • Rep: ${job.repName}` : ""}`}
+          actions={(
+            <>
+              <span className="mono badge badge-slate">{job.jobNumber}</span>
+              <span style={{ padding: "5px 10px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 12, fontWeight: 800 }}>{status.label}</span>
+              {job.customerPath ? (
+                <Link
+                  href={job.customerPath}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 999, background: "var(--surface-2)", color: "var(--text-primary)", fontSize: 12, fontWeight: 700, textDecoration: "none", border: "1px solid var(--border)" }}
+                >
+                  <UserRound size={12} />
+                  Customer record
+                </Link>
+              ) : null}
+            </>
+          )}
+          aside={(
+            <div className="detail-summary-grid three compact">
               <MilestoneCard label="Current stage" value={status.label} strong />
               <MilestoneCard label={crm?.summary?.nextFollowUpAt ? "Next follow-up" : "Next date"} value={<DateTimeStack value={crm?.summary?.nextFollowUpAt || operationalDate(job)} />} />
               <MilestoneCard label="Outstanding" value={isOwner ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : "Hidden"} />
             </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10, marginTop: 18 }}>
-            {TIMELINE.map((item, index) => {
-              const active = index <= timelineIndex;
-              return <div key={item.key} style={{ padding: "10px 12px", borderRadius: "var(--radius-md)", background: active ? "var(--text-primary)" : "var(--surface-soft)", color: active ? "var(--accent-text)" : "var(--text-secondary)", border: active ? "none" : "1px solid var(--border)", fontSize: 12, fontWeight: 700, textAlign: "center" }}>{item.label}</div>;
-            })}
-          </div>
+          )}
+        >
+          <span className="hero-chip">Next action: {nextAction(job)}</span>
+          <span className="hero-chip">{openTasks.length} open CRM task{openTasks.length === 1 ? "" : "s"}</span>
+          <span className="hero-chip">{installVisits.length} install day{installVisits.length === 1 ? "" : "s"} logged</span>
+          <span className="hero-chip">{openFieldReturns} active field return{openFieldReturns === 1 ? "" : "s"}</span>
+        </WorkspaceHeader>
+
+        <div className="timeline-strip">
+          {TIMELINE.map((item, index) => {
+            const active = index <= timelineIndex;
+            return (
+              <div key={item.key} className={`timeline-step ${active ? "active" : ""}`}>
+                {item.label}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {message.text ? <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: "var(--radius-md)", background: message.type === "error" ? "#fee2e2" : "#dcfce7", color: message.type === "error" ? "#991b1b" : "#166534", fontSize: 13, fontWeight: 600 }}>{message.text}</div> : null}
+      {message.text ? <div className={`detail-message ${message.type === "error" ? "error" : "success"}`}>{message.text}</div> : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16, alignItems: "start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="detail-shell">
+        <div className="detail-main">
           <ActionPanel title="Project snapshot" icon={Home}>
             {editingJob && canManageOps && jobForm ? (
               <form onSubmit={handleJobSave}>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 12 }}>
                   Update the core project record. Blank date fields are allowed and will stay empty.
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                <div className="detail-summary-grid compact">
                   <FormField label="Customer name">
                     <input value={jobForm.customerName} onChange={(e) => setJobForm((prev) => ({ ...prev, customerName: e.target.value }))} />
                   </FormField>
@@ -997,28 +1053,42 @@ export default function JobDetailPage() {
             ) : (
               <>
                 {canManageOps ? (
-                  <form onSubmit={handleInstallVisitSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginTop: 14, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 10 }}>Log install day</div>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                        <select value={installVisitForm.status} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, status: e.target.value }))}>
-                          {FIELD_VISIT_STATUSES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
-                        </select>
-                        <input type="date" value={installVisitForm.visitDate} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, visitDate: e.target.value }))} />
-                        <input type="number" min="1" value={installVisitForm.installDayNumber} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, installDayNumber: e.target.value, visitType: "install_day" }))} placeholder="Day #" />
-                      </div>
-                      <input value={installVisitForm.title} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, title: e.target.value, visitType: "install_day" }))} placeholder={`Default: ${defaultVisitTitle("install_day", installVisitForm.installDayNumber || nextInstallDayNumber)}`} />
-                      <textarea rows={3} value={installVisitForm.details} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, details: e.target.value, visitType: "install_day" }))} placeholder="What was done on this install day?" style={{ resize: "vertical" }} />
-                      <textarea rows={2} value={installVisitForm.outcome} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, outcome: e.target.value, visitType: "install_day" }))} placeholder="Outcome, blocker, or next step" style={{ resize: "vertical" }} />
-                      <select value={installVisitForm.assignedUserId} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, assignedUserId: e.target.value, visitType: "install_day" }))}>
-                        <option value="">Unassigned</option>
-                        {ownerOptions.map((member) => (
-                          <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
-                        ))}
-                      </select>
-                      <button className="btn btn-outline" type="submit">Add install day</button>
+                  <>
+                    <div className="composer-toolbar">
+                      <button type="button" className={`composer-chip ${composers.install ? "active" : ""}`} onClick={() => toggleComposer("install")}>
+                        {composers.install ? "Hide install composer" : "Log install day"}
+                      </button>
                     </div>
-                  </form>
+                    {composers.install ? (
+                      <ComposerCard
+                        title="Log install day"
+                        description="Capture the day number, field notes, and any blocker without leaving the job workspace."
+                        onClose={() => closeComposer("install")}
+                      >
+                        <form onSubmit={handleInstallVisitSubmit}>
+                          <div style={{ display: "grid", gap: 10 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                              <select value={installVisitForm.status} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, status: e.target.value }))}>
+                                {FIELD_VISIT_STATUSES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                              </select>
+                              <input type="date" value={installVisitForm.visitDate} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, visitDate: e.target.value }))} />
+                              <input type="number" min="1" value={installVisitForm.installDayNumber} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, installDayNumber: e.target.value, visitType: "install_day" }))} placeholder="Day #" />
+                            </div>
+                            <input value={installVisitForm.title} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, title: e.target.value, visitType: "install_day" }))} placeholder={`Default: ${defaultVisitTitle("install_day", installVisitForm.installDayNumber || nextInstallDayNumber)}`} />
+                            <textarea rows={3} value={installVisitForm.details} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, details: e.target.value, visitType: "install_day" }))} placeholder="What was done on this install day?" style={{ resize: "vertical" }} />
+                            <textarea rows={2} value={installVisitForm.outcome} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, outcome: e.target.value, visitType: "install_day" }))} placeholder="Outcome, blocker, or next step" style={{ resize: "vertical" }} />
+                            <select value={installVisitForm.assignedUserId} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, assignedUserId: e.target.value, visitType: "install_day" }))}>
+                              <option value="">Unassigned</option>
+                              {ownerOptions.map((member) => (
+                                <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
+                              ))}
+                            </select>
+                            <button className="btn btn-outline" type="submit">Add install day</button>
+                          </div>
+                        </form>
+                      </ComposerCard>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {installVisits.length > 0 ? (
@@ -1063,29 +1133,43 @@ export default function JobDetailPage() {
           <ActionPanel title="Inspection" icon={ClipboardList}>
             <SectionHeading title="Inspection tracking" description="Scheduling, results, authority details, and follow-up notes." />
             {canManageOps ? (
-              <form onSubmit={handleInspectionSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
-                <div style={{ fontWeight: 700, marginBottom: 10 }}>Log inspection event</div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <select value={inspectionForm.inspectionType} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectionType: e.target.value }))}>
-                      {INSPECTION_TYPES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
-                    </select>
-                    <select value={inspectionForm.result} onChange={(e) => setInspectionForm((prev) => ({ ...prev, result: e.target.value }))}>
-                      {INSPECTION_RESULTS.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <input type="datetime-local" value={inspectionForm.scheduledAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, scheduledAt: e.target.value }))} />
-                    <input type="datetime-local" value={inspectionForm.completedAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, completedAt: e.target.value }))} />
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <input value={inspectionForm.authorityName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, authorityName: e.target.value }))} placeholder="AHJ / authority" />
-                    <input value={inspectionForm.inspectorName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectorName: e.target.value }))} placeholder="Inspector name" />
-                  </div>
-                  <textarea rows={3} value={inspectionForm.notes} onChange={(e) => setInspectionForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Result details, correction list, or reschedule note" style={{ resize: "vertical" }} />
-                  <button className="btn btn-outline" type="submit">Add inspection record</button>
+              <>
+                <div className="composer-toolbar">
+                  <button type="button" className={`composer-chip ${composers.inspection ? "active" : ""}`} onClick={() => toggleComposer("inspection")}>
+                    {composers.inspection ? "Hide inspection composer" : "Add inspection record"}
+                  </button>
                 </div>
-              </form>
+                {composers.inspection ? (
+                  <ComposerCard
+                    title="Log inspection event"
+                    description="Keep the scheduled time, result, authority details, and correction notes together."
+                    onClose={() => closeComposer("inspection")}
+                  >
+                    <form onSubmit={handleInspectionSubmit}>
+                      <div style={{ display: "grid", gap: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <select value={inspectionForm.inspectionType} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectionType: e.target.value }))}>
+                            {INSPECTION_TYPES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                          </select>
+                          <select value={inspectionForm.result} onChange={(e) => setInspectionForm((prev) => ({ ...prev, result: e.target.value }))}>
+                            {INSPECTION_RESULTS.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <input type="datetime-local" value={inspectionForm.scheduledAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, scheduledAt: e.target.value }))} />
+                          <input type="datetime-local" value={inspectionForm.completedAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, completedAt: e.target.value }))} />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <input value={inspectionForm.authorityName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, authorityName: e.target.value }))} placeholder="AHJ / authority" />
+                          <input value={inspectionForm.inspectorName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectorName: e.target.value }))} placeholder="Inspector name" />
+                        </div>
+                        <textarea rows={3} value={inspectionForm.notes} onChange={(e) => setInspectionForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Result details, correction list, or reschedule note" style={{ resize: "vertical" }} />
+                        <button className="btn btn-outline" type="submit">Add inspection record</button>
+                      </div>
+                    </form>
+                  </ComposerCard>
+                ) : null}
+              </>
             ) : null}
             {inspections.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1192,7 +1276,7 @@ export default function JobDetailPage() {
           {isOwner ? (
           <div ref={billingRef}>
           <ActionPanel title="Financials" icon={CircleDollarSign}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginBottom: 14 }}>
+            <div className="detail-summary-grid three" style={{ marginBottom: 14 }}>
               <MilestoneCard label="Invoiced" value={formatCurrency(invoiceSummary.total / 100)} />
               <MilestoneCard label="Collected" value={formatCurrency(invoiceSummary.paid / 100)} />
               <MilestoneCard label="Outstanding" value={formatCurrency(invoiceSummary.outstanding / 100)} strong />
@@ -1274,7 +1358,7 @@ export default function JobDetailPage() {
           </ActionPanel>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="detail-rail">
           <div ref={crmRef}>
             <ActionPanel title="CRM workspace" icon={MessageSquareMore}>
               {!crmInstalled ? (
@@ -1283,7 +1367,7 @@ export default function JobDetailPage() {
                 </div>
               ) : (
                 <>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
+                  <div className="detail-summary-grid three compact" style={{ marginBottom: 14 }}>
                     <MiniMetric label="Last contact" value={crm?.summary?.lastContactAt ? <DateTimeStack value={crm.summary.lastContactAt} /> : "Not logged"} />
                     <MiniMetric label="Next follow-up" value={crm?.summary?.nextFollowUpAt ? formatDate(crm.summary.nextFollowUpAt) : "Not set"} strong />
                     <MiniMetric label="Owner" value={crm?.summary?.followUpOwnerName || "Unassigned"} />
@@ -1305,7 +1389,10 @@ export default function JobDetailPage() {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      onClick={() => setContactForm((prev) => ({ ...prev, summary: prev.summary || "Quick homeowner update" }))}
+                      onClick={() => {
+                        setContactForm((prev) => ({ ...prev, summary: prev.summary || "Quick homeowner update" }));
+                        openComposer("contact");
+                      }}
                     >
                       <NotebookPen size={13} />
                       Prep log
@@ -1313,6 +1400,19 @@ export default function JobDetailPage() {
                   </div>
 
                   {canManageOps ? (
+                    <div className="composer-toolbar" style={{ marginBottom: 14 }}>
+                      <button type="button" className={`composer-chip ${composers.crmSettings ? "active" : ""}`} onClick={() => toggleComposer("crmSettings")}>
+                        {composers.crmSettings ? "Hide follow-up settings" : "Edit follow-up settings"}
+                      </button>
+                      <button type="button" className={`composer-chip ${composers.contact ? "active" : ""}`} onClick={() => toggleComposer("contact")}>
+                        {composers.contact ? "Hide communication log" : "Log communication"}
+                      </button>
+                      <button type="button" className={`composer-chip ${composers.task ? "active" : ""}`} onClick={() => toggleComposer("task")}>
+                        {composers.task ? "Hide task composer" : "Create task"}
+                      </button>
+                    </div>
+                  ) : null}
+                  {canManageOps && composers.crmSettings ? (
                     <form onSubmit={handleCrmSave} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 14 }}>
                       <div style={{ fontWeight: 700, marginBottom: 10 }}>Follow-up settings</div>
                       <div style={{ display: "grid", gap: 10 }}>
@@ -1337,7 +1437,7 @@ export default function JobDetailPage() {
 
                   <div style={{ marginBottom: 14 }}>
                     <SectionHeading title="Communication log" description="Calls, emails, texts, and internal follow-up notes stay attached to the job." />
-                    {canManageOps ? (
+                    {canManageOps && composers.contact ? (
                       <form onSubmit={handleContactSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
                         <div style={{ display: "grid", gap: 10 }}>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -1384,7 +1484,7 @@ export default function JobDetailPage() {
 
                   <div>
                     <SectionHeading title="Follow-up tasks" description="Small, explicit next steps so nothing lives only in someone's head." />
-                    {canManageOps ? (
+                    {canManageOps && composers.task ? (
                       <form onSubmit={handleTaskSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
                         <div style={{ display: "grid", gap: 10 }}>
                           <input value={taskForm.title} onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Create a follow-up task" />
@@ -1406,7 +1506,7 @@ export default function JobDetailPage() {
                       </form>
                     ) : null}
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                    <div className="detail-summary-grid compact" style={{ marginBottom: 12 }}>
                       <MiniMetric label="Open tasks" value={openTasks.length} />
                       <MiniMetric label="Overdue" value={overdueTasks.length} strong={overdueTasks.length > 0} />
                     </div>
@@ -1461,9 +1561,9 @@ export default function JobDetailPage() {
           <ActionPanel title="Immediate actions" icon={ShieldCheck}>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>This panel should answer one question clearly: what should happen next on this job?</div>
             <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--amber-bg)", border: "1px solid var(--amber)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--amber-text)" }}>Next required action</div><div style={{ marginTop: 6, fontWeight: 800 }}>{nextAction(job)}</div></div>
-              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--surface-2)", border: "1px solid var(--border)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Current status</div><div style={{ marginTop: 6, fontWeight: 800 }}>{status.label}</div></div>
-              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--surface-2)", border: "1px solid var(--border)" }}><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Most relevant date</div><div style={{ marginTop: 6, fontWeight: 800 }}><DateTimeStack value={operationalDate(job)} /></div></div>
+              <div className="detail-callout strong"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--amber-text)" }}>Next required action</div><div style={{ marginTop: 6, fontWeight: 800 }}>{nextAction(job)}</div></div>
+              <div className="detail-callout"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Current status</div><div style={{ marginTop: 6, fontWeight: 800 }}>{status.label}</div></div>
+              <div className="detail-callout"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Most relevant date</div><div style={{ marginTop: 6, fontWeight: 800 }}><DateTimeStack value={operationalDate(job)} /></div></div>
             </div>
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)", marginBottom: 8 }}>
@@ -1480,6 +1580,7 @@ export default function JobDetailPage() {
                     onClick={() => {
                       if (action.kind === "status") return runQuickStatusAction(action);
                       if (action.kind === "invoice") return runQuickInvoiceAction(action);
+                      if (action.kind === "payment") return runQuickPaymentAction();
                     }}
                   >
                     {action.label}

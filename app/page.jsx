@@ -16,6 +16,7 @@ import {
   UserRoundSearch,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { formatCurrency, formatDate, getJobWorkflowDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
 
@@ -667,35 +668,44 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 18, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
-        <div className="page-header" style={{ marginBottom: 0, maxWidth: 760 }}>
-          <h1>Command center</h1>
-          <p>This version of the CRM leads with follow-up, risk, and customer context so you can see who needs attention before the pipeline slips.</p>
-        </div>
-
-        <div
-          className="card"
-          style={{
-            padding: "14px 16px",
-            minWidth: 290,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            background: "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(245,248,251,0.98) 100%)",
-          }}
-        >
-          <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--text-tertiary)" }}>
-            Workspace pulse
+      <WorkspaceHeader
+        eyebrow="Command Center"
+        title="Lead the day with the next right touchpoint"
+        description="This workspace surfaces follow-up pressure, field movement, and customer risk first so the team can move jobs forward without digging through noise."
+        aside={(
+          <div
+            className="card"
+            style={{
+              padding: "16px 18px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(245,248,251,0.96) 100%)",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--text-tertiary)" }}>
+              Workspace pulse
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
+              <Clock3 size={15} style={{ color: "var(--amber)" }} />
+              {loading ? "Loading live pipeline..." : `${activeJobs.length} active jobs and ${followUpQueue.length} records worth opening first`}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              {missingContactCount} job{missingContactCount === 1 ? "" : "s"} still need cleaner customer contact data.
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
-            <Clock3 size={15} style={{ color: "var(--amber)" }} />
-            {loading ? "Loading live pipeline..." : `${activeJobs.length} active jobs and ${followUpQueue.length} records worth opening first`}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            {missingContactCount} job{missingContactCount === 1 ? "" : "s"} need cleaner customer contact data.
-          </div>
-        </div>
-      </div>
+        )}
+      >
+        <span className="hero-chip">
+          {loading ? "Loading..." : `${atRiskCount} at risk now`}
+        </span>
+        <span className="hero-chip">
+          {loading ? "Loading..." : `${openFieldVisitCount} open field return${openFieldVisitCount === 1 ? "" : "s"}`}
+        </span>
+        <span className="hero-chip">
+          {loading ? "Loading..." : `${touchpoints.schedule.length + touchpoints.urgentService.length} next-48-hour touchpoint${touchpoints.schedule.length + touchpoints.urgentService.length === 1 ? "" : "s"}`}
+        </span>
+      </WorkspaceHeader>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
         {focusCards.map(({ key, ...card }) => (

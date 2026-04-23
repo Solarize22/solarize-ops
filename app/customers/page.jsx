@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { AlertTriangle, Mail, MessageSquareMore, Phone, Search, UserRound } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
@@ -132,10 +133,15 @@ export default function CustomersPage() {
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Customers</h1>
-        <p>See the relationship view across jobs, follow-up, contact history, and open commitments instead of treating every homeowner like a disconnected project.</p>
-      </div>
+      <WorkspaceHeader
+        eyebrow="Customer CRM"
+        title="See the relationship, not just the project"
+        description="Track each homeowner across jobs, follow-up history, risk signals, and open commitments so the team can keep communication tight from sale to closeout."
+      >
+        <span className="hero-chip">{loading ? "Loading..." : `${customers.length} homeowners in the CRM`}</span>
+        <span className="hero-chip">{loading ? "Loading..." : `${counts.needsFollowUp} need follow-up`}</span>
+        <span className="hero-chip">{loading ? "Loading..." : `${counts.atRisk} at risk`}</span>
+      </WorkspaceHeader>
 
       <div className="stat-grid">
         <div className="stat-card">
@@ -162,8 +168,9 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 360 }}>
+      <div className="card toolbar-card">
+        <div className="toolbar-group" style={{ flex: "1 1 360px" }}>
+          <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 360 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
           <input
             value={search}
@@ -188,29 +195,32 @@ export default function CustomersPage() {
             </button>
           ))}
         </div>
+        </div>
 
-        <select value={sort} onChange={(event) => setSort(event.target.value)} style={{ width: "auto", minWidth: 160 }}>
-          {SORTS.map((item) => (
-            <option key={item.key} value={item.key}>{item.label}</option>
-          ))}
-        </select>
+        <div className="toolbar-group">
+          <select value={sort} onChange={(event) => setSort(event.target.value)} style={{ width: "auto", minWidth: 160 }}>
+            {SORTS.map((item) => (
+              <option key={item.key} value={item.key}>{item.label}</option>
+            ))}
+          </select>
 
-        {(search || filter !== "all" || sort !== "attention") ? (
-          <button
-            className="btn btn-ghost"
-            onClick={() => {
-              setSearch("");
-              setFilter("all");
-              setSort("attention");
-            }}
-          >
-            Clear
-          </button>
-        ) : null}
+          {(search || filter !== "all" || sort !== "attention") ? (
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setSearch("");
+                setFilter("all");
+                setSort("attention");
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
 
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {loading ? "Loading..." : `${filtered.length} customer${filtered.length !== 1 ? "s" : ""}`}
-        </span>
+          <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+            {loading ? "Loading..." : `${filtered.length} customer${filtered.length !== 1 ? "s" : ""}`}
+          </span>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>

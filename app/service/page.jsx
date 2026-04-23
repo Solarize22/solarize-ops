@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search, MapPin } from "lucide-react";
 
@@ -41,10 +42,15 @@ export default function ServicePage() {
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Service</h1>
-        <p>Track site visits and service calls with scheduled dates, statuses, and field notes instead of burying revisits in job comments.</p>
-      </div>
+      <WorkspaceHeader
+        eyebrow="Field Service"
+        title="Keep every revisit visible and accountable"
+        description="Track site visits and service calls with clear urgency, ownership, and next steps instead of burying return trips in freeform notes."
+      >
+        <span className="hero-chip">{loading ? "Loading..." : `${active} active ticket${active === 1 ? "" : "s"}`}</span>
+        <span className="hero-chip">{loading ? "Loading..." : `${scheduled} scheduled visit${scheduled === 1 ? "" : "s"}`}</span>
+        <span className="hero-chip">{loading ? "Loading..." : `${high} high-urgency issue${high === 1 ? "" : "s"}`}</span>
+      </WorkspaceHeader>
 
       <div className="stat-grid">
         <div className="stat-card">
@@ -69,8 +75,9 @@ export default function ServicePage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
+      <div className="card toolbar-card">
+        <div className="toolbar-group" style={{ flex: "1 1 320px" }}>
+          <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 340 }}>
           <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }} />
           <input
             value={search}
@@ -79,20 +86,23 @@ export default function ServicePage() {
             style={{ width: "100%", paddingLeft: 30 }}
           />
         </div>
-        <select value={urgencyFilter} onChange={e => setUrgencyFilter(e.target.value)}>
-          {URGENCIES.map(u => <option key={u} value={u}>{u === "All" ? "All urgencies" : u}</option>)}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          {STATUSES.map(s => <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>)}
-        </select>
-        {(search || urgencyFilter !== "All" || statusFilter !== "All") && (
-          <button className="btn btn-ghost" onClick={() => { setSearch(""); setUrgencyFilter("All"); setStatusFilter("All"); }}>
-            Clear
-          </button>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-tertiary)" }}>
-          {loading ? "Loading..." : `${filtered.length} ticket${filtered.length !== 1 ? "s" : ""}`}
-        </span>
+        </div>
+        <div className="toolbar-group">
+          <select value={urgencyFilter} onChange={e => setUrgencyFilter(e.target.value)}>
+            {URGENCIES.map(u => <option key={u} value={u}>{u === "All" ? "All urgencies" : u}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            {STATUSES.map(s => <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>)}
+          </select>
+          {(search || urgencyFilter !== "All" || statusFilter !== "All") && (
+            <button className="btn btn-ghost" onClick={() => { setSearch(""); setUrgencyFilter("All"); setStatusFilter("All"); }}>
+              Clear
+            </button>
+          )}
+          <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+            {loading ? "Loading..." : `${filtered.length} ticket${filtered.length !== 1 ? "s" : ""}`}
+          </span>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>

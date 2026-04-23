@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight, Search, ArrowUp, ArrowDown, MessageSquareMore, UserRound } from "lucide-react";
 import { getWorkflowAdvanceAction } from "@/lib/job-workflow";
 import { formatCurrency, formatDate, getJobSortTime, getJobWorkflowDate } from "@/lib/utils";
@@ -641,25 +642,28 @@ export default function JobsPage() {
 
   return (
     <AppShell>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1>Daily action board</h1>
-          <p>Use the queues and CRM filters below to work installs, homeowner follow-up, invoices, PTO, and problem jobs.</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {canSeeFinancials ? (
-            <Link href="/invoices">
-              <button className="btn btn-outline" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <CircleDollarSign size={14} /> Billing
-              </button>
-            </Link>
-          ) : null}
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 18, fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
-        {loading || roleLoading ? "Loading..." : showAllJobs ? `Showing ${jobs.length} total jobs` : `Showing ${activeJobs.length} active jobs`}
-      </div>
+      <WorkspaceHeader
+        eyebrow="Daily Action Board"
+        title="Run installs, follow-up, and billing from one worklist"
+        description="Use the queues and CRM filters below to work installs, homeowner communication, PTO, inspections, and problem jobs without losing the thread."
+        actions={canSeeFinancials ? (
+          <Link href="/invoices" style={{ textDecoration: "none" }}>
+            <span className="btn btn-outline">
+              <CircleDollarSign size={14} /> Billing
+            </span>
+          </Link>
+        ) : null}
+      >
+        <span className="hero-chip">
+          {loading || roleLoading ? "Loading..." : showAllJobs ? `${jobs.length} total jobs` : `${activeJobs.length} active jobs`}
+        </span>
+        <span className="hero-chip">
+          {loading ? "Loading..." : `${crmCounts.crmRisk} CRM risk`}
+        </span>
+        <span className="hero-chip">
+          {loading ? "Loading..." : `${crmCounts.fieldwork} field follow-up`}
+        </span>
+      </WorkspaceHeader>
 
       {boardMessage.text ? (
         <div
@@ -678,7 +682,7 @@ export default function JobsPage() {
         </div>
       ) : null}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+      <div className="card toolbar-card">
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
           <MessageSquareMore size={14} />
           CRM focus
@@ -702,17 +706,13 @@ export default function JobsPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
+      <div className="queue-grid">
         <button
           type="button"
           onClick={handleAllJobsClick}
-          className="card"
+          className={`card queue-card ${activeQueueKey === "all" ? "active" : ""}`}
           style={{
-            padding: "18px",
-            border: activeQueueKey === "all" ? "1px solid var(--text-primary)" : "1px solid var(--border)",
-            background: activeQueueKey === "all" ? "var(--surface-2)" : "var(--surface)",
             textAlign: "left",
-            cursor: "pointer",
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
@@ -722,7 +722,7 @@ export default function JobsPage() {
                 {showAllJobs ? "Showing the full database, including closed jobs." : "Show the full open pipeline."}
               </div>
             </div>
-            <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
+            <div className="queue-card-count">
               {showAllJobs ? jobs.length : activeJobs.length}
             </div>
           </div>
@@ -743,13 +743,9 @@ export default function JobsPage() {
               setActiveQueueKey(queue.key);
               setShowAllJobs(false);
             }}
-            className="card"
+            className={`card queue-card ${activeQueueKey === queue.key ? "active" : ""}`}
             style={{
-              padding: "18px",
-              border: activeQueueKey === queue.key ? "1px solid var(--text-primary)" : "1px solid var(--border)",
-              background: activeQueueKey === queue.key ? "var(--surface-2)" : "var(--surface)",
               textAlign: "left",
-              cursor: "pointer",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
@@ -762,7 +758,7 @@ export default function JobsPage() {
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{queue.description}</div>
                 </div>
               </div>
-              <div style={{ minWidth: 38, height: 38, borderRadius: 12, background: "var(--text-primary)", color: "var(--accent-text)", display: "grid", placeItems: "center", fontWeight: 800 }}>
+              <div className="queue-card-count">
                 {queue.jobs.length}
               </div>
             </div>
@@ -773,8 +769,8 @@ export default function JobsPage() {
         ))}
       </div>
 
-      <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div className="card table-card">
+        <div className="table-card-header">
           <div>
             <div style={{ fontWeight: 800, fontSize: 15 }}>
               {activeQueue ? activeQueue.title : showAllJobs ? "All jobs" : "Master worklist"}
@@ -784,17 +780,10 @@ export default function JobsPage() {
               {crmFilter !== "all" ? ` CRM filter: ${CRM_FILTERS.find((filter) => filter.key === crmFilter)?.label || "All CRM signals"}.` : ""}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
-            <div
+          <div className="toolbar-group" style={{ marginLeft: "auto" }}>
+            <div className="toolbar-search"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
                 minWidth: 260,
-                padding: "0 10px",
-                border: "1px solid var(--border)",
-                borderRadius: 10,
-                background: "var(--surface-2)",
               }}
             >
               <Search size={14} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
@@ -805,12 +794,8 @@ export default function JobsPage() {
                 placeholder="Search job #, customer, address..."
                 style={{
                   width: "100%",
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
                   color: "var(--text-primary)",
                   fontSize: 13,
-                  padding: "10px 0",
                 }}
               />
               {searchTerm ? (
@@ -831,13 +816,7 @@ export default function JobsPage() {
                 </button>
               ) : null}
             </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                whiteSpace: "nowrap",
-              }}
-            >
+            <div className="inline-note" style={{ whiteSpace: "nowrap" }}>
               {`Sorted by ${tableColumns.find((column) => column.key === sortState.key)?.label || "Workflow date"} ${sortState.direction === "asc" ? "ascending" : "descending"}`}
             </div>
             <div style={{ position: "relative" }}>
