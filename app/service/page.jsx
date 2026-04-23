@@ -6,7 +6,7 @@ import { statusBadgeClass, formatDate } from "@/lib/utils";
 import { Search, MapPin } from "lucide-react";
 
 const URGENCIES = ["All", "High", "Medium", "Low"];
-const STATUSES = ["All", "Open", "In Progress", "Scheduled", "Resolved"];
+const STATUSES = ["All", "Open", "In Progress", "Scheduled", "Resolved", "Cancelled"];
 
 export default function ServicePage() {
   const [serviceItems, setServiceItems] = useState([]);
@@ -34,23 +34,23 @@ export default function ServicePage() {
     });
   }, [serviceItems, search, urgencyFilter, statusFilter]);
 
-  const open = serviceItems.filter(s => s.status === "Open").length;
+  const active = serviceItems.filter(s => !["Resolved", "Cancelled"].includes(s.status)).length;
   const inProgress = serviceItems.filter(s => s.status === "In Progress").length;
   const scheduled = serviceItems.filter(s => s.status === "Scheduled").length;
-  const high = serviceItems.filter(s => s.urgency === "High" && s.status !== "Resolved").length;
+  const high = serviceItems.filter(s => s.urgency === "High" && !["Resolved", "Cancelled"].includes(s.status)).length;
 
   return (
     <AppShell>
       <div className="page-header">
         <h1>Service</h1>
-        <p>Issue tracking derived from normalized jobs in hold/failure states.</p>
+        <p>Track site visits and service calls with scheduled dates, statuses, and field notes instead of burying revisits in job comments.</p>
       </div>
 
       <div className="stat-grid">
         <div className="stat-card">
-          <div className="stat-label">Open tickets</div>
-          <div className="stat-value" style={{ color: high > 0 ? "var(--red)" : undefined }}>{open}</div>
-          <div className="stat-detail">Awaiting dispatch</div>
+          <div className="stat-label">Active queue</div>
+          <div className="stat-value" style={{ color: high > 0 ? "var(--red)" : undefined }}>{active}</div>
+          <div className="stat-detail">Needs scheduling or follow-through</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">In progress</div>
@@ -107,6 +107,7 @@ export default function ServicePage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <span className="mono badge badge-slate">{item.id}</span>
+                {item.type ? <span className={`badge ${statusBadgeClass(item.type)}`}>{item.type}</span> : null}
                 <span className={`badge ${statusBadgeClass(item.urgency)}`}>{item.urgency}</span>
               </div>
               <span className={`badge ${statusBadgeClass(item.status)}`}>{item.status}</span>

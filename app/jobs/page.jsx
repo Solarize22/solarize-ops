@@ -29,6 +29,14 @@ const STATUS_META = {
 
 const QUEUES = [
   {
+    key: "fieldwork",
+    title: "Field follow-up",
+    description: "Open site visits, service calls, or revisit work that still needs attention.",
+    empty: "No field follow-up is open right now.",
+    icon: CalendarDays,
+    match: (job) => (job.fieldTrackingSummary?.openVisitCount || 0) > 0,
+  },
+  {
     key: "scheduled",
     title: "Scheduled installs",
     description: "Jobs that need crew attention and install execution.",
@@ -85,7 +93,11 @@ const JOBS_WORKLIST_CRM_FILTER_KEY = "jobs-worklist-crm-filter-v1";
 const DEFAULT_VISIBLE_COLUMNS = {
   installScheduledDate: false,
   installCompletedDate: false,
+  installDays: false,
   inspectionDate: false,
+  inspectionResult: false,
+  nextFieldVisit: false,
+  activeRevisits: false,
   systemSize: false,
   panels: false,
   module: false,
@@ -108,6 +120,7 @@ const CRM_FILTERS = [
   { key: "noRecentContact", label: "No recent contact" },
   { key: "openTasks", label: "Open tasks" },
   { key: "crmRisk", label: "CRM risk" },
+  { key: "fieldwork", label: "Field follow-up" },
 ];
 
 function statusMeta(status) {
@@ -173,6 +186,26 @@ function getOverdueTaskCount(job) {
   return job.crmSummary?.overdueTaskCount ?? 0;
 }
 
+function getInstallDayCount(job) {
+  return job.fieldTrackingSummary?.installDayCount ?? 0;
+}
+
+function getInspectionResult(job) {
+  return job.inspectionResult || null;
+}
+
+function getNextFieldVisitDate(job) {
+  return job.fieldTrackingSummary?.nextVisitDate || null;
+}
+
+function getNextFieldVisitType(job) {
+  return job.fieldTrackingSummary?.nextVisitType || null;
+}
+
+function getOpenVisitCount(job) {
+  return job.fieldTrackingSummary?.openVisitCount ?? 0;
+}
+
 function hasCrmRisk(job) {
   const overdueTasks = getOverdueTaskCount(job);
   const nextFollowUp = getNextFollowUpDate(job);
@@ -227,10 +260,18 @@ function getSortValue(job, key) {
       return job.installScheduledAt ? new Date(job.installScheduledAt).getTime() : null;
     case "installCompletedDate":
       return job.installCompletedAt ? new Date(job.installCompletedAt).getTime() : null;
+    case "installDays":
+      return getInstallDayCount(job);
     case "inspectionDate": {
       const inspectionDate = getInspectionDate(job);
       return inspectionDate ? new Date(inspectionDate).getTime() : null;
     }
+    case "inspectionResult":
+      return getInspectionResult(job) || "";
+    case "nextFieldVisit":
+      return getNextFieldVisitDate(job) ? new Date(getNextFieldVisitDate(job)).getTime() : null;
+    case "activeRevisits":
+      return getOpenVisitCount(job);
     case "systemSize":
       return job.systemSizeKw ?? null;
     case "panels":
@@ -286,6 +327,8 @@ function matchesWorklistSearch(job, searchTerm) {
     job.address?.postalCode,
     job.module,
     job.inverter,
+    getInspectionResult(job),
+    getNextFieldVisitType(job),
   ]
     .filter(Boolean)
     .join(" ")
@@ -437,6 +480,8 @@ export default function JobsPage() {
           return getOpenTaskCount(job) > 0;
         case "crmRisk":
           return hasCrmRisk(job);
+        case "fieldwork":
+          return getOpenVisitCount(job) > 0;
         default:
           return true;
       }
@@ -487,12 +532,17 @@ export default function JobsPage() {
     }).length,
     openTasks: activeJobs.filter((job) => getOpenTaskCount(job) > 0).length,
     crmRisk: activeJobs.filter((job) => hasCrmRisk(job)).length,
+    fieldwork: activeJobs.filter((job) => getOpenVisitCount(job) > 0).length,
   }), [activeJobs]);
 
   const optionalColumns = [
     { key: "installScheduledDate", label: "Install scheduled" },
     { key: "installCompletedDate", label: "Install completed" },
+    { key: "installDays", label: "Install days" },
     { key: "inspectionDate", label: "Inspection date" },
+    { key: "inspectionResult", label: "Inspection result" },
+    { key: "nextFieldVisit", label: "Next field visit" },
+    { key: "activeRevisits", label: "Field follow-up" },
     { key: "systemSize", label: "System size" },
     { key: "panels", label: "Panels" },
     { key: "module", label: "Module" },
@@ -515,7 +565,11 @@ export default function JobsPage() {
     { key: "fullAddress", label: "Full address" },
     ...(visibleColumns.installScheduledDate ? [{ key: "installScheduledDate", label: "Install scheduled" }] : []),
     ...(visibleColumns.installCompletedDate ? [{ key: "installCompletedDate", label: "Install completed" }] : []),
+    ...(visibleColumns.installDays ? [{ key: "installDays", label: "Install days" }] : []),
     ...(visibleColumns.inspectionDate ? [{ key: "inspectionDate", label: "Inspection date" }] : []),
+    ...(visibleColumns.inspectionResult ? [{ key: "inspectionResult", label: "Inspection result" }] : []),
+    ...(visibleColumns.nextFieldVisit ? [{ key: "nextFieldVisit", label: "Next field visit" }] : []),
+    ...(visibleColumns.activeRevisits ? [{ key: "activeRevisits", label: "Field follow-up" }] : []),
     ...(visibleColumns.systemSize ? [{ key: "systemSize", label: "System size" }] : []),
     ...(visibleColumns.panels ? [{ key: "panels", label: "Panels" }] : []),
     ...(visibleColumns.module ? [{ key: "module", label: "Module" }] : []),
@@ -642,6 +696,7 @@ export default function JobsPage() {
               {filter.key === "noRecentContact" ? ` (${crmCounts.noRecentContact})` : ""}
               {filter.key === "openTasks" ? ` (${crmCounts.openTasks})` : ""}
               {filter.key === "crmRisk" ? ` (${crmCounts.crmRisk})` : ""}
+              {filter.key === "fieldwork" ? ` (${crmCounts.fieldwork})` : ""}
             </button>
           ))}
         </div>
@@ -929,6 +984,10 @@ export default function JobsPage() {
                   const crmRisk = hasCrmRisk(job);
                   const fullAddress = getFullAddress(job);
                   const inspectionDate = getInspectionDate(job);
+                  const inspectionResult = getInspectionResult(job);
+                  const nextFieldVisitDate = getNextFieldVisitDate(job);
+                  const nextFieldVisitType = getNextFieldVisitType(job);
+                  const openVisitCount = getOpenVisitCount(job);
                   const workflowAction = canManageOps ? getWorkflowAdvanceAction(job, "Jobs board") : null;
                   return (
                     <tr
@@ -973,9 +1032,54 @@ export default function JobsPage() {
                           {formatDate(job.installCompletedAt)}
                         </td>
                       ) : null}
+                      {visibleColumns.installDays ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {getInstallDayCount(job) > 0 ? (
+                            <span className="badge badge-blue">
+                              {getInstallDayCount(job)} day{getInstallDayCount(job) === 1 ? "" : "s"}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>-</span>
+                          )}
+                        </td>
+                      ) : null}
                       {visibleColumns.inspectionDate ? (
                         <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
                           {formatDate(inspectionDate)}
+                        </td>
+                      ) : null}
+                      {visibleColumns.inspectionResult ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {inspectionResult ? (
+                            <span className={`badge ${inspectionResult === "passed" ? "badge-green" : inspectionResult === "failed" ? "badge-red" : inspectionResult === "cancelled" ? "badge-slate" : "badge-blue"}`}>
+                              {String(inspectionResult).replace(/_/g, " ")}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>-</span>
+                          )}
+                        </td>
+                      ) : null}
+                      {visibleColumns.nextFieldVisit ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {nextFieldVisitDate ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              <span style={{ fontWeight: 700 }}>{formatDate(nextFieldVisitDate)}</span>
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{nextFieldVisitType ? String(nextFieldVisitType).replace(/_/g, " ") : "Field visit"}</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>-</span>
+                          )}
+                        </td>
+                      ) : null}
+                      {visibleColumns.activeRevisits ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {openVisitCount > 0 ? (
+                            <span className={`badge ${job.fieldTrackingSummary?.openServiceCallCount > 0 ? "badge-red" : "badge-amber"}`}>
+                              {openVisitCount} open
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>0</span>
+                          )}
                         </td>
                       ) : null}
                       {visibleColumns.systemSize ? (

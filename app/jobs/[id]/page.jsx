@@ -26,6 +26,10 @@ const PAYMENT_METHODS = ["ACH", "WIRE", "CHECK", "CREDIT_CARD", "FINANCER", "CAS
 const CONTACT_CHANNELS = ["call", "text", "email", "voicemail", "note"];
 const CONTACT_DIRECTIONS = ["outbound", "inbound", "internal"];
 const TASK_PRIORITIES = ["high", "medium", "low"];
+const INSPECTION_TYPES = ["electrical", "building", "final", "other"];
+const INSPECTION_RESULTS = ["scheduled", "passed", "failed", "cancelled"];
+const FIELD_VISIT_TYPES = ["install_day", "site_visit", "service_call"];
+const FIELD_VISIT_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"];
 
 const STATUS_META = {
   created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
@@ -76,6 +80,32 @@ function taskStatusMeta(status) {
   if (status === "done") return "badge-green";
   if (status === "in_progress") return "badge-blue";
   return "badge-amber";
+}
+
+function inspectionResultBadge(result) {
+  if (result === "passed") return "badge-green";
+  if (result === "failed") return "badge-red";
+  if (result === "cancelled") return "badge-slate";
+  return "badge-blue";
+}
+
+function fieldVisitStatusBadge(status) {
+  if (status === "completed") return "badge-green";
+  if (status === "in_progress") return "badge-blue";
+  if (status === "cancelled") return "badge-slate";
+  return "badge-amber";
+}
+
+function fieldVisitTypeBadge(type) {
+  if (type === "service_call") return "badge-red";
+  if (type === "site_visit") return "badge-amber";
+  return "badge-blue";
+}
+
+function defaultVisitTitle(visitType, installDayNumber) {
+  if (visitType === "install_day") return `Install day ${installDayNumber || 1}`;
+  if (visitType === "service_call") return "Service call";
+  return "Site visit";
 }
 
 function isOverdueTask(task) {
@@ -208,6 +238,8 @@ export default function JobDetailPage() {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [inspections, setInspections] = useState([]);
+  const [fieldVisits, setFieldVisits] = useState([]);
+  const [fieldTrackingInstalled, setFieldTrackingInstalled] = useState(true);
   const [history, setHistory] = useState([]);
   const [crm, setCrm] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -219,6 +251,9 @@ export default function JobDetailPage() {
   const [crmForm, setCrmForm] = useState({ lastContactAt: "", nextFollowUpAt: "", followUpOwnerId: "" });
   const [contactForm, setContactForm] = useState({ channel: "call", direction: "outbound", summary: "", details: "", contactedAt: "" });
   const [taskForm, setTaskForm] = useState({ title: "", details: "", priority: "high", dueAt: "", ownerUserId: "" });
+  const [inspectionForm, setInspectionForm] = useState({ inspectionType: "final", result: "scheduled", scheduledAt: "", completedAt: "", authorityName: "", inspectorName: "", notes: "" });
+  const [installVisitForm, setInstallVisitForm] = useState({ visitType: "install_day", status: "completed", visitDate: "", installDayNumber: "", title: "", details: "", outcome: "", assignedUserId: "" });
+  const [revisitForm, setRevisitForm] = useState({ visitType: "site_visit", status: "scheduled", visitDate: "", title: "", details: "", outcome: "", assignedUserId: "" });
   const [statusForm, setStatusForm] = useState({ toStatus: "scheduled", effectiveDate: "", note: "" });
   const [invoiceForm, setInvoiceForm] = useState({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
   const [paymentForm, setPaymentForm] = useState({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
@@ -245,6 +280,8 @@ export default function JobDetailPage() {
         setJob(detailData.job || null);
         setInvoices(Array.isArray(detailData.invoices) ? detailData.invoices : []);
         setInspections(Array.isArray(detailData.inspections) ? detailData.inspections : []);
+        setFieldVisits(Array.isArray(detailData.fieldVisits) ? detailData.fieldVisits : []);
+        setFieldTrackingInstalled(detailData.fieldTrackingInstalled !== false);
         setHistory(Array.isArray(detailData.history) ? detailData.history : []);
         setPayments(Array.isArray(detailData.payments) ? detailData.payments : []);
         setCrm(detailData.crm || null);
@@ -319,6 +356,45 @@ export default function JobDetailPage() {
     }));
   }, [crm, job]);
 
+  const installVisits = useMemo(
+    () => [...fieldVisits]
+      .filter((visit) => visit.visitType === "install_day")
+      .sort((left, right) => Number(left.installDayNumber || 0) - Number(right.installDayNumber || 0) || String(left.visitDate || "").localeCompare(String(right.visitDate || ""))),
+    [fieldVisits]
+  );
+
+  const revisitVisits = useMemo(
+    () => [...fieldVisits]
+      .filter((visit) => visit.visitType !== "install_day")
+      .sort((left, right) => String(right.visitDate || "").localeCompare(String(left.visitDate || ""))),
+    [fieldVisits]
+  );
+
+  const nextInstallDayNumber = useMemo(
+    () => installVisits.reduce((max, visit) => Math.max(max, Number(visit.installDayNumber || 0)), 0) + 1,
+    [installVisits]
+  );
+
+  useEffect(() => {
+    if (!job) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setInspectionForm((prev) => ({
+      ...prev,
+      scheduledAt: prev.scheduledAt || new Date().toISOString().slice(0, 16),
+    }));
+    setInstallVisitForm((prev) => ({
+      ...prev,
+      visitDate: prev.visitDate || today,
+      installDayNumber: prev.installDayNumber || String(nextInstallDayNumber),
+      assignedUserId: prev.assignedUserId || job.repUserId || "",
+    }));
+    setRevisitForm((prev) => ({
+      ...prev,
+      visitDate: prev.visitDate || today,
+      assignedUserId: prev.assignedUserId || job.repUserId || "",
+    }));
+  }, [job, nextInstallDayNumber]);
+
   useEffect(() => {
     if (!paymentForm.invoiceId && invoices.length > 0) {
       const openInvoice = invoices.find((invoice) => (invoice.balanceCents || 0) > 0);
@@ -386,6 +462,117 @@ export default function JobDetailPage() {
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save status" });
+    }
+  }
+
+  async function handleInspectionSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/inspections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(inspectionForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save inspection");
+      setInspectionForm((prev) => ({
+        ...prev,
+        result: "scheduled",
+        scheduledAt: new Date().toISOString().slice(0, 16),
+        completedAt: "",
+        authorityName: "",
+        inspectorName: "",
+        notes: "",
+      }));
+      setMessage({ type: "success", text: "Inspection logged." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to save inspection" });
+    }
+  }
+
+  async function handleInstallVisitSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const payload = {
+        ...installVisitForm,
+        title: installVisitForm.title || defaultVisitTitle("install_day", installVisitForm.installDayNumber),
+      };
+      const res = await fetch(`/api/v2/jobs/${id}/field-visits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save field visit");
+      setInstallVisitForm((prev) => ({
+        ...prev,
+        visitDate: new Date().toISOString().slice(0, 10),
+        installDayNumber: String(nextInstallDayNumber + 1),
+        title: "",
+        details: "",
+        outcome: "",
+      }));
+      setMessage({ type: "success", text: "Field visit logged." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to save field visit" });
+    }
+  }
+
+  async function handleRevisitSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const payload = {
+        ...revisitForm,
+        title: revisitForm.title || defaultVisitTitle(revisitForm.visitType),
+      };
+      const res = await fetch(`/api/v2/jobs/${id}/field-visits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save field visit");
+      setRevisitForm((prev) => ({
+        ...prev,
+        visitDate: new Date().toISOString().slice(0, 10),
+        title: "",
+        details: "",
+        outcome: "",
+      }));
+      setMessage({ type: "success", text: "Field visit logged." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to save field visit" });
+    }
+  }
+
+  async function updateFieldVisit(visit, updates) {
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/field-visits/${visit.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: visit.title,
+          details: visit.details,
+          outcome: visit.outcome,
+          assignedUserId: visit.assignedUserId || "",
+          visitDate: visit.visitDate,
+          status: visit.status,
+          ...updates,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update field visit");
+      setMessage({ type: "success", text: "Field visit updated." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to update field visit" });
     }
   }
 
@@ -797,22 +984,209 @@ export default function JobDetailPage() {
             <InfoGrid items={[
               { label: "Scheduled date", value: formatDate(job.installScheduledAt) },
               { label: "Completed date", value: formatDate(job.installCompletedAt) },
+              { label: "Logged install days", value: installVisits.length || "-" },
+              { label: "Latest field day", value: installVisits[installVisits.length - 1]?.visitDate ? formatDate(installVisits[installVisits.length - 1].visitDate) : "-" },
               { label: "Crew", value: fieldValue(job.crewNames?.join(", ")) },
-              { label: "Homeowner", value: fieldValue(job.customerName) },
-              { label: "Current status", value: status.label },
               { label: "Next action", value: nextAction(job) },
             ]} />
+
+            {!fieldTrackingInstalled ? (
+              <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
+                Apply `db/migrations/004_field_visit_tracking.sql` to track install day 1, day 2, day 3, and any revisit history on the job.
+              </div>
+            ) : (
+              <>
+                {canManageOps ? (
+                  <form onSubmit={handleInstallVisitSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginTop: 14, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 10 }}>Log install day</div>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        <select value={installVisitForm.status} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, status: e.target.value }))}>
+                          {FIELD_VISIT_STATUSES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                        </select>
+                        <input type="date" value={installVisitForm.visitDate} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, visitDate: e.target.value }))} />
+                        <input type="number" min="1" value={installVisitForm.installDayNumber} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, installDayNumber: e.target.value, visitType: "install_day" }))} placeholder="Day #" />
+                      </div>
+                      <input value={installVisitForm.title} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, title: e.target.value, visitType: "install_day" }))} placeholder={`Default: ${defaultVisitTitle("install_day", installVisitForm.installDayNumber || nextInstallDayNumber)}`} />
+                      <textarea rows={3} value={installVisitForm.details} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, details: e.target.value, visitType: "install_day" }))} placeholder="What was done on this install day?" style={{ resize: "vertical" }} />
+                      <textarea rows={2} value={installVisitForm.outcome} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, outcome: e.target.value, visitType: "install_day" }))} placeholder="Outcome, blocker, or next step" style={{ resize: "vertical" }} />
+                      <select value={installVisitForm.assignedUserId} onChange={(e) => setInstallVisitForm((prev) => ({ ...prev, assignedUserId: e.target.value, visitType: "install_day" }))}>
+                        <option value="">Unassigned</option>
+                        {ownerOptions.map((member) => (
+                          <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
+                        ))}
+                      </select>
+                      <button className="btn btn-outline" type="submit">Add install day</button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {installVisits.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {installVisits.map((visit) => (
+                      <div key={visit.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "12px 14px", background: visit.status === "completed" ? "var(--surface-2)" : "#fff8e8" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 6 }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                              <div style={{ fontWeight: 700 }}>{visit.title}</div>
+                              <span className={`badge ${fieldVisitTypeBadge(visit.visitType)}`}>Day {visit.installDayNumber}</span>
+                              <span className={`badge ${fieldVisitStatusBadge(visit.status)}`}>{formatLabel(visit.status)}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>{visit.details || "No install details logged."}</div>
+                            {visit.outcome ? <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6, marginTop: 6 }}>Outcome: {visit.outcome}</div> : null}
+                          </div>
+                          <div style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>
+                            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{formatDate(visit.visitDate)}</div>
+                            <div>{visit.assignedUserName || "Unassigned"}</div>
+                          </div>
+                        </div>
+                        {canManageOps ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {visit.status !== "completed" ? (
+                              <button type="button" className="btn btn-ghost" onClick={() => updateFieldVisit(visit, { status: visit.status === "scheduled" ? "in_progress" : "completed" })}>
+                                {visit.status === "scheduled" ? "Start day" : "Mark complete"}
+                              </button>
+                            ) : null}
+                            {visit.status !== "cancelled" ? (
+                              <button type="button" className="btn btn-ghost" onClick={() => updateFieldVisit(visit, { status: "cancelled" })}>Cancel</button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : <EmptyState text="No install day records yet. Log day 1, day 2, and day 3 here instead of losing them in notes." />}
+              </>
+            )}
           </ActionPanel>
 
           <ActionPanel title="Inspection" icon={ClipboardList}>
             <SectionHeading title="Inspection tracking" description="Scheduling, results, authority details, and follow-up notes." />
+            {canManageOps ? (
+              <form onSubmit={handleInspectionSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 10 }}>Log inspection event</div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <select value={inspectionForm.inspectionType} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectionType: e.target.value }))}>
+                      {INSPECTION_TYPES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                    </select>
+                    <select value={inspectionForm.result} onChange={(e) => setInspectionForm((prev) => ({ ...prev, result: e.target.value }))}>
+                      {INSPECTION_RESULTS.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <input type="datetime-local" value={inspectionForm.scheduledAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, scheduledAt: e.target.value }))} />
+                    <input type="datetime-local" value={inspectionForm.completedAt} onChange={(e) => setInspectionForm((prev) => ({ ...prev, completedAt: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <input value={inspectionForm.authorityName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, authorityName: e.target.value }))} placeholder="AHJ / authority" />
+                    <input value={inspectionForm.inspectorName} onChange={(e) => setInspectionForm((prev) => ({ ...prev, inspectorName: e.target.value }))} placeholder="Inspector name" />
+                  </div>
+                  <textarea rows={3} value={inspectionForm.notes} onChange={(e) => setInspectionForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Result details, correction list, or reschedule note" style={{ resize: "vertical" }} />
+                  <button className="btn btn-outline" type="submit">Add inspection record</button>
+                </div>
+              </form>
+            ) : null}
             {inspections.length > 0 ? (
-              <div className="table-wrap" style={{ marginBottom: 14 }}>
-                <table><thead><tr><th>Type</th><th>Result</th><th>Scheduled</th><th>Completed</th><th>Authority</th><th>Inspector</th></tr></thead><tbody>
-                  {inspections.map((inspection) => <tr key={inspection.id}><td>{inspection.inspectionType}</td><td>{inspection.result}</td><td>{formatDate(inspection.scheduledAt)}</td><td>{formatDate(inspection.completedAt)}</td><td>{fieldValue(inspection.authorityName)}</td><td>{fieldValue(inspection.inspectorName)}</td></tr>)}
-                </tbody></table>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {inspections.map((inspection) => (
+                  <div key={inspection.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "12px 14px", background: inspection.result === "failed" ? "#fff2f0" : "var(--surface-2)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span className="badge badge-slate">{formatLabel(inspection.inspectionType)}</span>
+                        <span className={`badge ${inspectionResultBadge(inspection.result)}`}>{formatLabel(inspection.result)}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                        <div>Scheduled: {formatDate(inspection.scheduledAt)}</div>
+                        <div>Completed: {formatDate(inspection.completedAt)}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
+                      <div>Authority: <strong style={{ color: "var(--text-primary)" }}>{fieldValue(inspection.authorityName)}</strong></div>
+                      <div>Inspector: <strong style={{ color: "var(--text-primary)" }}>{fieldValue(inspection.inspectorName)}</strong></div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>{inspection.notes || "No inspection notes logged."}</div>
+                  </div>
+                ))}
               </div>
             ) : <EmptyState text="No inspection records yet." />}
+          </ActionPanel>
+
+          <ActionPanel title="Site Visits & Service Calls" icon={CalendarDays}>
+            <SectionHeading title="Revisit tracking" description="Track every return trip after the original install, whether it is a site visit or a service call." />
+            {!fieldTrackingInstalled ? (
+              <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
+                Apply `db/migrations/004_field_visit_tracking.sql` to log site visits and service calls here.
+              </div>
+            ) : (
+              <>
+                {canManageOps ? (
+                  <form onSubmit={handleRevisitSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 10 }}>Log site visit or service call</div>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        <select value={revisitForm.visitType} onChange={(e) => setRevisitForm((prev) => ({ ...prev, visitType: e.target.value, title: prev.title || defaultVisitTitle(e.target.value) }))}>
+                          {FIELD_VISIT_TYPES.filter((item) => item !== "install_day").map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                        </select>
+                        <select value={revisitForm.status} onChange={(e) => setRevisitForm((prev) => ({ ...prev, status: e.target.value }))}>
+                          {FIELD_VISIT_STATUSES.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}
+                        </select>
+                        <input type="date" value={revisitForm.visitDate} onChange={(e) => setRevisitForm((prev) => ({ ...prev, visitDate: e.target.value }))} />
+                      </div>
+                      <input value={revisitForm.title} onChange={(e) => setRevisitForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="What is the revisit for?" />
+                      <textarea rows={3} value={revisitForm.details} onChange={(e) => setRevisitForm((prev) => ({ ...prev, details: e.target.value }))} placeholder="Issue, homeowner need, or reason for going back" style={{ resize: "vertical" }} />
+                      <textarea rows={2} value={revisitForm.outcome} onChange={(e) => setRevisitForm((prev) => ({ ...prev, outcome: e.target.value }))} placeholder="Outcome, resolution, or next step" style={{ resize: "vertical" }} />
+                      <select value={revisitForm.assignedUserId} onChange={(e) => setRevisitForm((prev) => ({ ...prev, assignedUserId: e.target.value }))}>
+                        <option value="">Unassigned</option>
+                        {ownerOptions.map((member) => (
+                          <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
+                        ))}
+                      </select>
+                      <button className="btn btn-outline" type="submit">Add revisit</button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {revisitVisits.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {revisitVisits.map((visit) => (
+                      <div key={visit.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "12px 14px", background: visit.visitType === "service_call" ? "#fff4f1" : "var(--surface-2)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 6 }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                              <div style={{ fontWeight: 700 }}>{visit.title}</div>
+                              <span className={`badge ${fieldVisitTypeBadge(visit.visitType)}`}>{formatLabel(visit.visitType)}</span>
+                              <span className={`badge ${fieldVisitStatusBadge(visit.status)}`}>{formatLabel(visit.status)}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>{visit.details || "No extra revisit details logged."}</div>
+                            {visit.outcome ? <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6, marginTop: 6 }}>Outcome: {visit.outcome}</div> : null}
+                          </div>
+                          <div style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>
+                            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{formatDate(visit.visitDate)}</div>
+                            <div>{visit.assignedUserName || "Unassigned"}</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: canManageOps ? 8 : 0 }}>
+                          Logged by {visit.createdByName || "Unknown user"}{visit.completedAt ? ` · Completed ${formatDate(visit.completedAt)}` : ""}
+                        </div>
+                        {canManageOps ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {visit.status !== "completed" ? (
+                              <button type="button" className="btn btn-ghost" onClick={() => updateFieldVisit(visit, { status: visit.status === "scheduled" ? "in_progress" : "completed" })}>
+                                {visit.status === "scheduled" ? "Start visit" : "Mark complete"}
+                              </button>
+                            ) : null}
+                            {visit.status !== "cancelled" ? (
+                              <button type="button" className="btn btn-ghost" onClick={() => updateFieldVisit(visit, { status: "cancelled" })}>Cancel</button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : <EmptyState text="No site visits or service calls have been logged yet." />}
+              </>
+            )}
           </ActionPanel>
 
           {isOwner ? (

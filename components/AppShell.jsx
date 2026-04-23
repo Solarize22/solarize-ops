@@ -22,9 +22,9 @@ const ALL_NAV = [
   { href: "/customers",  label: "Customers",      icon: Users,         roles: null },
   { href: "/jobs",       label: "Jobs",            icon: ClipboardList, roles: null },
   { href: "/scheduling", label: "Scheduling",      icon: CalendarDays,  roles: ["owner","admin","installer"] },
-  { href: "/invoices",   label: "Invoices",        icon: DollarSign,    roles: ["owner"] },
+  { href: "/invoices",   label: "Invoices",        icon: DollarSign,    roles: ["owner","admin"] },
   { href: "/service",    label: "Service",         icon: Wrench,        roles: ["owner","admin","installer"] },
-  { href: "/reports",    label: "Reports",         icon: BarChart3,     roles: ["owner"] },
+  { href: "/reports",    label: "Reports",         icon: BarChart3,     roles: ["owner","admin"] },
   { href: "/settings",   label: "Settings",        icon: Settings,      roles: null },
   { href: "/import",     label: "Import jobs",     icon: Upload,        roles: ["owner","admin"] },
   { href: "/admin",      label: "Admin",           icon: Shield,        roles: ["owner"] },
@@ -36,6 +36,7 @@ function RoleBadge({ role }) {
     admin:       { bg: "#dbeafe", color: "#1e40af" },
     installer:   { bg: "#d1fae5", color: "#065f46" },
     salesperson: { bg: "#ede9fe", color: "#5b21b6" },
+    sales:       { bg: "#ede9fe", color: "#5b21b6" },
   };
   const c = colors[role] || colors.installer;
   return (

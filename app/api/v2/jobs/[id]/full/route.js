@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
 import { emptyCrmPayload, isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
 import { customerIdentityForRow } from "@/lib/customer-crm";
+import { isFieldTrackingInstalled, mapFieldVisitRow } from "@/lib/field-tracking";
 
 export async function GET(req, { params }) {
   try {
@@ -16,8 +17,9 @@ export async function GET(req, { params }) {
 
     const showFinancials = canSeeFinancials(ctx.appUser);
     const crmInstalled = await isCrmInstalled(ctx.sql);
+    const fieldTrackingInstalled = await isFieldTrackingInstalled(ctx.sql);
 
-    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows, contactRows, taskRows] = await Promise.all([
+    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows, contactRows, taskRows, fieldVisitRows] = await Promise.all([
       ctx.sql`
         select
           j.*,
@@ -128,6 +130,22 @@ export async function GET(req, { params }) {
               t.created_at desc
           `
         : Promise.resolve([]),
+      fieldTrackingInstalled
+        ? ctx.sql`
+            select
+              v.*,
+              assigned.full_name as assigned_user_name,
+              creator.full_name as created_by_name
+            from job_field_visits v
+            left join app_users assigned on assigned.id = v.assigned_user_id
+            left join app_users creator on creator.id = v.created_by
+            where v.job_id = ${access.id}
+            order by
+              case when v.visit_type = 'install_day' then 0 else 1 end asc,
+              v.visit_date desc,
+              v.created_at desc
+          `
+        : Promise.resolve([]),
     ]);
 
     const row = jobRows[0];
@@ -223,6 +241,8 @@ export async function GET(req, { params }) {
         createdAt: inspection.created_at,
         updatedAt: inspection.updated_at,
       })),
+      fieldTrackingInstalled,
+      fieldVisits: fieldVisitRows.map(mapFieldVisitRow),
       history: historyRows
         .filter((item) => showFinancials || (!item.related_invoice_id && !item.related_payment_id && item.event_type !== "invoice_created" && item.event_type !== "payment_received"))
         .map((item) => ({

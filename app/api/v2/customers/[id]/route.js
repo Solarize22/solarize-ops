@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
-import { canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 import { isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
-import { buildCustomerKey, chooseEarlierDate, chooseLaterDate, customerIdForKey } from "@/lib/customer-crm";
+import { buildCustomerKey, chooseEarlierDate, chooseLaterDate, customerIdForKey, pickPrimaryCustomerJob } from "@/lib/customer-crm";
+
+function normalizeText(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text ? text : null;
+}
 
 export async function GET(req, { params }) {
   try {
@@ -118,6 +124,7 @@ export async function GET(req, { params }) {
     ]);
 
     const today = new Date().toISOString().slice(0, 10);
+    const primaryJob = pickPrimaryCustomerJob(matchingJobs);
     const summary = {
       id: params.id,
       name: matchingJobs[0].customer_name,
@@ -142,6 +149,11 @@ export async function GET(req, { params }) {
       followUpOwners: new Set(),
       openTaskCount: 0,
       overdueTaskCount: 0,
+      primaryJobId: primaryJob?.id || null,
+      primaryJobNumber: primaryJob?.job_number || null,
+      primaryJobStatus: primaryJob?.current_status || null,
+      primaryFollowUpOwnerId: primaryJob?.follow_up_owner_id || null,
+      primaryFollowUpOwnerName: primaryJob?.follow_up_owner_name || null,
     };
 
     const jobs = matchingJobs.map((row) => {
@@ -171,6 +183,7 @@ export async function GET(req, { params }) {
         installCompletedAt: row.install_completed_at,
         ptoGrantedAt: row.pto_granted_at,
         repName: row.rep_name,
+        followUpOwnerId: row.follow_up_owner_id,
         followUpOwnerName: row.follow_up_owner_name,
         lastContactAt: row.last_contact_at,
         nextFollowUpAt: row.next_follow_up_at,
@@ -196,10 +209,12 @@ export async function GET(req, { params }) {
       jobs,
       contactLog: contactRows.map((row) => ({
         ...mapContactLogRow(row),
+        jobId: row.job_id,
         jobNumber: row.job_number,
       })),
       tasks: taskRows.map((row) => ({
         ...mapTaskRow(row),
+        jobId: row.job_id,
         jobNumber: row.job_number,
       })),
       history: historyRows
@@ -217,5 +232,109 @@ export async function GET(req, { params }) {
     });
   } catch (error) {
     return NextResponse.json({ error: error.message || "Failed to load customer detail" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req, { params }) {
+  try {
+    const ctx = await getRequestContext();
+    if (!ctx.authenticated) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!canManageJobOperations(ctx.appUser)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (!(await isCrmInstalled(ctx.sql))) {
+      return NextResponse.json({ error: "CRM tables are not installed. Apply db/migrations/003_job_crm_workspace.sql first." }, { status: 409 });
+    }
+
+    const company = await getNormalizedCompany(ctx.sql);
+    if (!company) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const rows = await ctx.sql`
+      select
+        j.id,
+        j.job_number,
+        j.customer_name,
+        j.customer_phone,
+        j.customer_email,
+        j.current_status,
+        j.current_status_changed_at,
+        j.updated_at,
+        j.created_at
+      from jobs j
+      where j.company_id = ${company.id}
+        and (
+          ${installerName}::text is null
+          or exists(
+            select 1
+            from job_crew_assignments ax
+            join app_users ux on ux.id = ax.user_id
+            where ax.job_id = j.id
+              and lower(ux.full_name) = lower(${installerName})
+          )
+        )
+      order by j.created_at desc
+    `;
+
+    const matchingJobs = rows.filter((row) => customerIdForKey(buildCustomerKey(row)) === params.id);
+    if (!matchingJobs.length) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    const targetJob = pickPrimaryCustomerJob(matchingJobs);
+    if (!targetJob) {
+      return NextResponse.json({ error: "No eligible job found for this customer" }, { status: 404 });
+    }
+
+    const body = await req.json();
+    const lastContactAt = normalizeText(body?.lastContactAt);
+    const nextFollowUpAt = normalizeText(body?.nextFollowUpAt);
+    const followUpOwnerId = normalizeText(body?.followUpOwnerId);
+
+    const updatedRows = await ctx.sql`
+      update jobs
+      set
+        last_contact_at = ${lastContactAt || null}::timestamptz,
+        next_follow_up_at = ${nextFollowUpAt || null}::date,
+        follow_up_owner_id = ${followUpOwnerId || null}::uuid,
+        updated_at = now()
+      where id = ${targetJob.id}
+      returning id, job_number, last_contact_at, next_follow_up_at, follow_up_owner_id
+    `;
+
+    await ctx.sql`
+      insert into job_status_history (
+        job_id,
+        from_status,
+        to_status,
+        event_type,
+        changed_at,
+        changed_by,
+        note
+      )
+      values (
+        ${targetJob.id},
+        null,
+        ${targetJob.current_status}::job_status,
+        'note'::status_event_type,
+        now(),
+        ${ctx.appUser?.id || null},
+        ${"Updated customer relationship follow-up details"}
+      )
+    `;
+
+    return NextResponse.json({
+      jobId: updatedRows[0].id,
+      jobNumber: updatedRows[0].job_number,
+      lastContactAt: updatedRows[0].last_contact_at,
+      nextFollowUpAt: updatedRows[0].next_follow_up_at,
+      followUpOwnerId: updatedRows[0].follow_up_owner_id,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error.message || "Failed to update customer follow-up details" }, { status: 500 });
   }
 }

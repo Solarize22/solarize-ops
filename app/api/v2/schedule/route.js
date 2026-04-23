@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { isFieldTrackingInstalled } from "@/lib/field-tracking";
 
 function buildInstallEvent(job) {
   if (!job.install_scheduled_at) return null;
@@ -40,6 +41,32 @@ function buildInspectionEvent(inspection) {
   };
 }
 
+function buildFieldVisitEvent(visit) {
+  return {
+    id: `visit-${visit.id}`,
+    jobId: visit.job_id,
+    jobNumber: visit.job_number,
+    customerName: visit.customer_name,
+    type:
+      visit.visit_type === "install_day"
+        ? `Install Day ${visit.install_day_number || ""}`.trim()
+        : visit.visit_type === "service_call"
+          ? "Service"
+          : "Site Visit",
+    date: visit.visit_date,
+    site: [visit.street_1, visit.city, visit.state].filter(Boolean).join(", "),
+    crewNames: visit.assigned_user_name ? [visit.assigned_user_name] : [],
+    startTime: "TBD",
+    duration: visit.visit_type === "install_day" ? "Full day" : "As needed",
+    status:
+      visit.status === "completed" ? "Completed"
+      : visit.status === "cancelled" ? "Cancelled"
+      : visit.status === "in_progress" ? "In Progress"
+      : "Confirmed",
+    notes: [visit.title, visit.details, visit.outcome].filter(Boolean).join(" | "),
+  };
+}
+
 export async function GET() {
   try {
     const ctx = await getRequestContext();
@@ -53,6 +80,7 @@ export async function GET() {
     }
 
     const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const fieldTrackingInstalled = await isFieldTrackingInstalled(ctx.sql);
 
     const jobs = await ctx.sql`
       select
@@ -124,9 +152,48 @@ export async function GET() {
       order by i.scheduled_at asc
     `;
 
+    const fieldVisits = fieldTrackingInstalled
+      ? await ctx.sql`
+          select
+            fv.id,
+            fv.job_id,
+            fv.visit_type,
+            fv.visit_date,
+            fv.status,
+            fv.install_day_number,
+            fv.title,
+            fv.details,
+            fv.outcome,
+            assigned.full_name as assigned_user_name,
+            j.job_number,
+            j.customer_name,
+            j.street_1,
+            j.city,
+            j.state
+          from job_field_visits fv
+          join jobs j on j.id = fv.job_id
+          left join app_users assigned on assigned.id = fv.assigned_user_id
+          where j.company_id = ${company.id}
+            and fv.visit_date is not null
+            and fv.status <> 'cancelled'
+            and (
+              ${installerName}::text is null
+              or exists(
+                select 1
+                from job_crew_assignments ax
+                join app_users ux on ux.id = ax.user_id
+                where ax.job_id = j.id
+                  and lower(ux.full_name) = lower(${installerName})
+              )
+            )
+          order by fv.visit_date asc, fv.created_at asc
+        `
+      : [];
+
     const events = [
       ...jobs.map(buildInstallEvent).filter(Boolean),
       ...inspections.map(buildInspectionEvent).filter(Boolean),
+      ...fieldVisits.map(buildFieldVisitEvent).filter(Boolean),
     ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
     return NextResponse.json(events);

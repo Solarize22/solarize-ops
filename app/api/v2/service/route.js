@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { isFieldTrackingInstalled } from "@/lib/field-tracking";
 
 function buildServiceItem(job) {
   const status =
@@ -24,6 +25,27 @@ function buildServiceItem(job) {
   };
 }
 
+function buildVisitServiceItem(visit) {
+  return {
+    id: `VIS-${String(visit.id).slice(0, 8).toUpperCase()}`,
+    jobId: visit.job_id,
+    jobNumber: visit.job_number,
+    customer: visit.customer_name,
+    site: [visit.street_1, visit.city, visit.state].filter(Boolean).join(", "),
+    issue: visit.title,
+    urgency: visit.visit_type === "service_call" ? "High" : "Medium",
+    status:
+      visit.status === "scheduled" ? "Scheduled"
+      : visit.status === "in_progress" ? "In Progress"
+      : visit.status === "completed" ? "Resolved"
+      : "Cancelled",
+    createdDate: visit.visit_date,
+    assignedTo: visit.assigned_user_name || "Unassigned",
+    type: visit.visit_type === "service_call" ? "Service Call" : "Site Visit",
+    notes: [visit.details, visit.outcome].filter(Boolean).join(" | "),
+  };
+}
+
 export async function GET() {
   try {
     const ctx = await getRequestContext();
@@ -35,6 +57,40 @@ export async function GET() {
     if (!company) return NextResponse.json([]);
 
     const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+
+    if (await isFieldTrackingInstalled(ctx.sql)) {
+      const visitRows = await ctx.sql`
+        select
+          v.*,
+          j.job_number,
+          j.customer_name,
+          j.street_1,
+          j.city,
+          j.state,
+          assigned.full_name as assigned_user_name
+        from job_field_visits v
+        join jobs j on j.id = v.job_id
+        left join app_users assigned on assigned.id = v.assigned_user_id
+        where j.company_id = ${company.id}
+          and v.visit_type in ('site_visit', 'service_call')
+          and (
+            ${installerName}::text is null
+            or exists(
+              select 1
+              from job_crew_assignments ax
+              join app_users ux on ux.id = ax.user_id
+              where ax.job_id = j.id
+                and lower(ux.full_name) = lower(${installerName})
+            )
+          )
+        order by
+          case when v.status = 'completed' then 1 else 0 end asc,
+          v.visit_date desc,
+          v.created_at desc
+      `;
+
+      return NextResponse.json(visitRows.map(buildVisitServiceItem));
+    }
 
     const rows = await ctx.sql`
       select

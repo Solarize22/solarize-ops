@@ -102,6 +102,14 @@ function jobAddress(job) {
   return [job.address?.street1, job.address?.city, job.address?.state].filter(Boolean).join(", ") || "-";
 }
 
+function getOpenVisitCount(job) {
+  return job.fieldTrackingSummary?.openVisitCount ?? 0;
+}
+
+function getInstallDayCount(job) {
+  return job.fieldTrackingSummary?.installDayCount ?? 0;
+}
+
 function quickActionLabel(job, canSeeFinancials) {
   switch (job.currentStatus) {
     case "created":
@@ -166,6 +174,8 @@ function buildFollowUpQueue(jobs, serviceItems, scheduleItems, canSeeFinancials)
       const nextEvent = nextEventByJob.get(job.jobNumber) || nextEventByJob.get(job.id) || null;
       const serviceItem = serviceByJob.get(job.jobNumber) || serviceByJob.get(job.id) || null;
       const installDaysAway = daysUntil(job.installScheduledAt);
+      const openVisitCount = getOpenVisitCount(job);
+      const installDayCount = getInstallDayCount(job);
       const outstandingCents = job.financialSummary?.outstandingCents || 0;
       const missingContact = !job.customerPhone || !job.customerEmail;
       const staleThreshold = STALE_THRESHOLDS[job.currentStatus];
@@ -178,10 +188,18 @@ function buildFollowUpQueue(jobs, serviceItems, scheduleItems, canSeeFinancials)
         score = 100;
         tone = "red";
         reason = serviceItem.issue;
+      } else if (openVisitCount > 0) {
+        score = job.fieldTrackingSummary?.openServiceCallCount > 0 ? 95 : 84;
+        tone = job.fieldTrackingSummary?.openServiceCallCount > 0 ? "red" : "amber";
+        reason = `${openVisitCount} field follow-up visit${openVisitCount === 1 ? "" : "s"} is still open on this job.`;
       } else if (job.currentStatus === "inspection_failed") {
         score = 96;
         tone = "red";
         reason = "Failed inspection needs a homeowner update and correction plan.";
+      } else if (job.currentStatus === "scheduled" && installDayCount > 0 && !job.installCompletedAt) {
+        score = 79;
+        tone = "blue";
+        reason = `${installDayCount} install day${installDayCount === 1 ? "" : "s"} logged so far. Keep field progress moving and close the loop cleanly.`;
       } else if (job.currentStatus === "on_hold") {
         score = 92;
         tone = "red";
@@ -232,6 +250,7 @@ function buildFollowUpQueue(jobs, serviceItems, scheduleItems, canSeeFinancials)
         nextEvent,
         serviceItem,
         missingContact,
+        openVisitCount,
       };
     })
     .filter(Boolean)
@@ -494,7 +513,7 @@ export default function DashboardPage() {
       .slice(0, 5);
 
     const urgentService = serviceItems
-      .filter((item) => item.urgency === "High" && item.status !== "Resolved")
+      .filter((item) => item.urgency === "High" && !["Resolved", "Cancelled"].includes(item.status))
       .slice(0, 3);
 
     return { schedule, urgentService };
@@ -541,6 +560,14 @@ export default function DashboardPage() {
 
   const missingContactCount = useMemo(() => {
     return activeJobs.filter((job) => !job.customerPhone || !job.customerEmail).length;
+  }, [activeJobs]);
+
+  const openFieldVisitCount = useMemo(() => {
+    return activeJobs.reduce((sum, job) => sum + getOpenVisitCount(job), 0);
+  }, [activeJobs]);
+
+  const multiDayInstallCount = useMemo(() => {
+    return activeJobs.filter((job) => getInstallDayCount(job) > 1 && !job.installCompletedAt).length;
   }, [activeJobs]);
 
   const readyToAdvanceCount = useMemo(() => {
@@ -607,6 +634,15 @@ export default function DashboardPage() {
       href: "/scheduling",
       icon: CalendarDays,
       tone: "blue",
+    },
+    {
+      key: "fieldReturns",
+      title: "Open field returns",
+      value: openFieldVisitCount,
+      detail: `${multiDayInstallCount} multi-day installs are still active.`,
+      href: "/service",
+      icon: AlertTriangle,
+      tone: openFieldVisitCount > 0 ? "amber" : "green",
     },
     canSeeFinancials
       ? {

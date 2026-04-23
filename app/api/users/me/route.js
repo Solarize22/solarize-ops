@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
-import { getOrCreateUser } from "@/lib/users";
+import { getRequestContext } from "@/lib/normalized-api";
 
 export async function GET() {
-  const { userId } = await auth();
-  if (!userId) {
+  const ctx = await getRequestContext();
+  if (!ctx.authenticated || !ctx.appUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const clerkUser = await currentUser();
-  const email = clerkUser?.emailAddresses?.[0]?.emailAddress || "";
-  const firstName = clerkUser?.firstName || "";
-  const lastName  = clerkUser?.lastName  || "";
-  const name = [firstName, lastName].filter(Boolean).join(" ") || email.split("@")[0] || "User";
-
-  const user = await getOrCreateUser(userId, { email, name });
+  const user = ctx.appUser;
 
   return NextResponse.json({
     id:      user.id,
