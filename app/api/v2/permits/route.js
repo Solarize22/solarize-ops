@@ -17,10 +17,10 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) return NextResponse.json([]);
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
 
     const rows = await ctx.sql`
       select
@@ -38,13 +38,12 @@ export async function GET() {
       from jobs j
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       order by j.created_at desc

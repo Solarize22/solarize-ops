@@ -124,6 +124,23 @@ const CRM_FILTERS = [
   { key: "fieldwork", label: "Field follow-up" },
 ];
 
+const STALE_THRESHOLDS = {
+  created: 5,
+  scheduled: 2,
+  install_completed: 3,
+  inspection_scheduled: 2,
+  inspection_passed: 3,
+  inspection_failed: 1,
+  pto_submitted: 7,
+  pto_granted: 3,
+  m1_invoiced: 5,
+  m1_partially_paid: 4,
+  m1_paid: 5,
+  m2_invoiced: 5,
+  m2_partially_paid: 4,
+  on_hold: 2,
+};
+
 function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.created;
 }
@@ -205,6 +222,25 @@ function getNextFieldVisitType(job) {
 
 function getOpenVisitCount(job) {
   return job.fieldTrackingSummary?.openVisitCount ?? 0;
+}
+
+function isStalledJob(job) {
+  if (!job || ["paid_in_full", "cancelled"].includes(job.currentStatus)) return false;
+
+  const threshold = STALE_THRESHOLDS[job.currentStatus];
+  if (typeof threshold !== "number") return false;
+
+  const workflowDate = getJobWorkflowDate(job);
+  if (!workflowDate) return false;
+
+  const workflowTime = new Date(workflowDate).getTime();
+  if (Number.isNaN(workflowTime)) return false;
+
+  return Math.floor((Date.now() - workflowTime) / 86400000) >= threshold;
+}
+
+function isReadyToAdvanceJob(job) {
+  return ["install_completed", "inspection_passed", "pto_granted"].includes(job?.currentStatus);
 }
 
 function hasCrmRisk(job) {
@@ -349,6 +385,7 @@ export default function JobsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortState, setSortState] = useState({ key: "workflowDate", direction: "asc" });
   const [crmFilter, setCrmFilter] = useState("all");
+  const [focusPreset, setFocusPreset] = useState("all");
   const [boardMessage, setBoardMessage] = useState({ type: "", text: "" });
   const [updatingJobId, setUpdatingJobId] = useState("");
   const [visibleColumns, setVisibleColumns] = useState({
@@ -442,7 +479,28 @@ export default function JobsPage() {
     const params = new URLSearchParams(window.location.search);
     const requestedScope = params.get("scope");
     const requestedQueue = params.get("queue");
+    const requestedCrmFilter = params.get("crm");
+    const requestedFocus = params.get("focus");
+    const requestedSearch = params.get("search");
     const visibleQueueKeys = new Set(queueData.map((queue) => queue.key));
+
+    if (requestedCrmFilter && CRM_FILTERS.some((filter) => filter.key === requestedCrmFilter)) {
+      setCrmFilter(requestedCrmFilter);
+    } else if (!requestedCrmFilter) {
+      setCrmFilter("all");
+    }
+
+    if (requestedFocus === "stalled" || requestedFocus === "readyToAdvance") {
+      setFocusPreset(requestedFocus);
+    } else {
+      setFocusPreset("all");
+    }
+
+    if (requestedSearch) {
+      setSearchTerm(requestedSearch);
+    } else {
+      setSearchTerm("");
+    }
 
     if (requestedScope === "all") {
       setActiveQueueKey("all");
@@ -464,7 +522,12 @@ export default function JobsPage() {
 
   const worklist = useMemo(() => {
     const sourceJobs = activeQueue ? activeQueue.jobs : showAllJobs ? jobs : activeJobs;
-    const crmFilteredJobs = sourceJobs.filter((job) => {
+    const presetJobs = sourceJobs.filter((job) => {
+      if (focusPreset === "stalled") return isStalledJob(job);
+      if (focusPreset === "readyToAdvance") return isReadyToAdvanceJob(job);
+      return true;
+    });
+    const crmFilteredJobs = presetJobs.filter((job) => {
       switch (crmFilter) {
         case "overdueFollowUp": {
           const nextFollowUp = getNextFollowUpDate(job);
@@ -495,7 +558,7 @@ export default function JobsPage() {
     });
 
     return sortedJobs.slice(0, 100);
-  }, [activeJobs, activeQueue, crmFilter, jobs, normalizedSearchTerm, showAllJobs, sortState]);
+  }, [activeJobs, activeQueue, crmFilter, focusPreset, jobs, normalizedSearchTerm, showAllJobs, sortState]);
 
   useEffect(() => {
     setVisibleColumns((current) => ({
@@ -535,6 +598,28 @@ export default function JobsPage() {
     crmRisk: activeJobs.filter((job) => hasCrmRisk(job)).length,
     fieldwork: activeJobs.filter((job) => getOpenVisitCount(job) > 0).length,
   }), [activeJobs]);
+
+  const hasDrilldownPreset = focusPreset !== "all" || crmFilter !== "all" || normalizedSearchTerm.length > 0;
+
+  const drilldownSummary = useMemo(() => {
+    const parts = [];
+
+    if (focusPreset === "stalled") {
+      parts.push("Stalled jobs preset");
+    } else if (focusPreset === "readyToAdvance") {
+      parts.push("Ready to advance preset");
+    }
+
+    if (crmFilter !== "all") {
+      parts.push(CRM_FILTERS.find((filter) => filter.key === crmFilter)?.label || "CRM filter");
+    }
+
+    if (normalizedSearchTerm.length > 0) {
+      parts.push(`Search: "${searchTerm.trim()}"`);
+    }
+
+    return parts;
+  }, [crmFilter, focusPreset, normalizedSearchTerm, searchTerm]);
 
   const optionalColumns = [
     { key: "installScheduledDate", label: "Install scheduled" },
@@ -606,9 +691,19 @@ export default function JobsPage() {
   function handleAllJobsClick() {
     if (activeQueueKey === "all") {
       setShowAllJobs((current) => !current);
+      setFocusPreset("all");
       return;
     }
 
+    setActiveQueueKey("all");
+    setShowAllJobs(false);
+    setFocusPreset("all");
+  }
+
+  function clearDrilldownPreset() {
+    setFocusPreset("all");
+    setCrmFilter("all");
+    setSearchTerm("");
     setActiveQueueKey("all");
     setShowAllJobs(false);
   }
@@ -655,7 +750,15 @@ export default function JobsPage() {
         ) : null}
       >
         <span className="hero-chip">
-          {loading || roleLoading ? "Loading..." : showAllJobs ? `${jobs.length} total jobs` : `${activeJobs.length} active jobs`}
+          {loading || roleLoading
+            ? "Loading..."
+            : focusPreset === "stalled"
+              ? `${activeJobs.filter(isStalledJob).length} stalled jobs`
+              : focusPreset === "readyToAdvance"
+                ? `${activeJobs.filter(isReadyToAdvanceJob).length} ready to advance`
+                : showAllJobs
+                  ? `${jobs.length} total jobs`
+                  : `${activeJobs.length} active jobs`}
         </span>
         <span className="hero-chip">
           {loading ? "Loading..." : `${crmCounts.crmRisk} CRM risk`}
@@ -773,10 +876,26 @@ export default function JobsPage() {
         <div className="table-card-header">
           <div>
             <div style={{ fontWeight: 800, fontSize: 15 }}>
-              {activeQueue ? activeQueue.title : showAllJobs ? "All jobs" : "Master worklist"}
+              {focusPreset === "stalled"
+                ? "Stalled jobs"
+                : focusPreset === "readyToAdvance"
+                  ? "Ready to advance"
+                  : activeQueue
+                    ? activeQueue.title
+                    : showAllJobs
+                      ? "All jobs"
+                      : "Master worklist"}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-              {activeQueue ? activeQueue.description : showAllJobs ? "Showing every job, including closed and cancelled records." : "Showing the full active pipeline."}
+              {focusPreset === "stalled"
+                ? "Showing jobs that have sat past their stage-age threshold."
+                : focusPreset === "readyToAdvance"
+                  ? "Showing jobs that are already at a handoff point and should move with one push."
+                  : activeQueue
+                    ? activeQueue.description
+                    : showAllJobs
+                      ? "Showing every job, including closed and cancelled records."
+                      : "Showing the full active pipeline."}
               {crmFilter !== "all" ? ` CRM filter: ${CRM_FILTERS.find((filter) => filter.key === crmFilter)?.label || "All CRM signals"}.` : ""}
             </div>
           </div>
@@ -866,6 +985,35 @@ export default function JobsPage() {
             </div>
           </div>
         </div>
+
+        {hasDrilldownPreset ? (
+          <div
+            style={{
+              margin: "0 20px 16px",
+              padding: "12px 14px",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid #bfdbfe",
+              background: "#eff6ff",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#1d4ed8", marginBottom: 4 }}>
+                Filtered worklist
+              </div>
+              <div style={{ fontSize: 12, color: "#36567b" }}>
+                {drilldownSummary.join(" | ") || "This view is narrowed from the full jobs board."}
+              </div>
+            </div>
+            <button type="button" className="btn btn-outline" onClick={clearDrilldownPreset}>
+              Clear drill-down
+            </button>
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="empty-state" style={{ padding: 34 }}>Loading jobs...</div>

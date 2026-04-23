@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { canManageJobOperations, canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, canSeeFinancials, findCompanyUserById, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 import { isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
-import { buildCustomerKey, chooseEarlierDate, chooseLaterDate, customerIdForKey, pickPrimaryCustomerJob } from "@/lib/customer-crm";
+import { chooseEarlierDate, chooseLaterDate, findCustomerRowsById, pickPrimaryCustomerJob } from "@/lib/customer-crm";
+
+const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -16,12 +18,12 @@ export async function GET(req, { params }) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const showFinancials = canSeeFinancials(ctx.appUser);
     const crmInstalled = await isCrmInstalled(ctx.sql);
 
@@ -57,20 +59,19 @@ export async function GET(req, { params }) {
       left join invoices i on i.job_id = j.id
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by j.id, rep.full_name, follow_up_owner.full_name
       order by j.created_at desc
     `;
 
-    const matchingJobs = rows.filter((row) => customerIdForKey(buildCustomerKey(row)) === params.id);
+    const matchingJobs = findCustomerRowsById(rows, params.id);
     if (!matchingJobs.length) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -248,39 +249,30 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "CRM tables are not installed. Apply db/migrations/003_job_crm_workspace.sql first." }, { status: 409 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const rows = await ctx.sql`
       select
-        j.id,
-        j.job_number,
-        j.customer_name,
-        j.customer_phone,
-        j.customer_email,
-        j.current_status,
-        j.current_status_changed_at,
-        j.updated_at,
-        j.created_at
+        j.*
       from jobs j
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       order by j.created_at desc
     `;
 
-    const matchingJobs = rows.filter((row) => customerIdForKey(buildCustomerKey(row)) === params.id);
+    const matchingJobs = findCustomerRowsById(rows, params.id);
     if (!matchingJobs.length) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
@@ -294,13 +286,20 @@ export async function PATCH(req, { params }) {
     const lastContactAt = normalizeText(body?.lastContactAt);
     const nextFollowUpAt = normalizeText(body?.nextFollowUpAt);
     const followUpOwnerId = normalizeText(body?.followUpOwnerId);
+    const followUpOwner = followUpOwnerId
+      ? await findCompanyUserById(ctx.sql, company.id, followUpOwnerId, { roles: CRM_ASSIGNABLE_ROLES })
+      : null;
+
+    if (followUpOwnerId && !followUpOwner) {
+      return NextResponse.json({ error: "Selected follow-up owner must be an active ops/admin/owner on this company." }, { status: 400 });
+    }
 
     const updatedRows = await ctx.sql`
       update jobs
       set
         last_contact_at = ${lastContactAt || null}::timestamptz,
         next_follow_up_at = ${nextFollowUpAt || null}::date,
-        follow_up_owner_id = ${followUpOwnerId || null}::uuid,
+        follow_up_owner_id = ${followUpOwner?.id || null}::uuid,
         updated_at = now()
       where id = ${targetJob.id}
       returning id, job_number, last_contact_at, next_follow_up_at, follow_up_owner_id

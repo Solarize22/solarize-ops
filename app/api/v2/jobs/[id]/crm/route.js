@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, ensureAccessToJob, findCompanyUserById, getRequestContext } from "@/lib/normalized-api";
 import { emptyCrmPayload, isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
+
+const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -109,13 +111,20 @@ export async function PATCH(req, { params }) {
     const lastContactAt = normalizeText(body?.lastContactAt);
     const nextFollowUpAt = normalizeDate(body?.nextFollowUpAt);
     const followUpOwnerId = normalizeText(body?.followUpOwnerId);
+    const followUpOwner = followUpOwnerId
+      ? await findCompanyUserById(ctx.sql, access.company_id, followUpOwnerId, { roles: CRM_ASSIGNABLE_ROLES })
+      : null;
+
+    if (followUpOwnerId && !followUpOwner) {
+      return NextResponse.json({ error: "Selected follow-up owner must be an active ops/admin/owner on this company." }, { status: 400 });
+    }
 
     const rows = await ctx.sql`
       update jobs
       set
         last_contact_at = ${lastContactAt || null}::timestamptz,
         next_follow_up_at = ${nextFollowUpAt || null}::date,
-        follow_up_owner_id = ${followUpOwnerId || null}::uuid,
+        follow_up_owner_id = ${followUpOwner?.id || null}::uuid,
         updated_at = now()
       where id = ${access.id}
       returning last_contact_at, next_follow_up_at, follow_up_owner_id

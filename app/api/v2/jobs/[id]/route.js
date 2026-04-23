@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { syncCustomerForJob } from "@/lib/customer-crm";
 
 export async function GET(req, { params }) {
   try {
@@ -225,6 +226,8 @@ export async function PATCH(req, { params }) {
       where id = ${access.id}
       returning *
     `;
+
+    await syncCustomerForJob(ctx.sql, access.company_id, access.id, rows[0]);
 
     await ctx.sql`
       insert into job_status_history (

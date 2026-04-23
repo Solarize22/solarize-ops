@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { canManageJobOperations, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, findCompanyUserById, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 import { findCustomerRowsById, pickPrimaryCustomerJob } from "@/lib/customer-crm";
 import { isCrmInstalled, mapTaskRow } from "@/lib/job-crm";
 
 const VALID_PRIORITIES = new Set(["low", "medium", "high"]);
+const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -24,33 +25,24 @@ export async function POST(req, { params }) {
       return NextResponse.json({ error: "CRM tables are not installed. Apply db/migrations/003_job_crm_workspace.sql first." }, { status: 409 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const rows = await ctx.sql`
       select
-        j.id,
-        j.job_number,
-        j.customer_name,
-        j.customer_phone,
-        j.customer_email,
-        j.current_status,
-        j.current_status_changed_at,
-        j.updated_at,
-        j.created_at
+        j.*
       from jobs j
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       order by j.created_at desc
@@ -74,6 +66,12 @@ export async function POST(req, { params }) {
     }
     if (!VALID_PRIORITIES.has(priority)) {
       return NextResponse.json({ error: "Invalid task priority" }, { status: 400 });
+    }
+    const owner = ownerUserId
+      ? await findCompanyUserById(ctx.sql, company.id, ownerUserId, { roles: CRM_ASSIGNABLE_ROLES })
+      : null;
+    if (ownerUserId && !owner) {
+      return NextResponse.json({ error: "Selected task owner must be an active ops/admin/owner on this company." }, { status: 400 });
     }
 
     const targetJob = (targetJobId
@@ -104,7 +102,7 @@ export async function POST(req, { params }) {
         'open'::follow_up_task_status,
         ${priority}::follow_up_task_priority,
         ${dueAt || null}::date,
-        ${ownerUserId || null}::uuid,
+        ${owner?.id || null}::uuid,
         ${ctx.appUser?.id || null},
         now(),
         now()

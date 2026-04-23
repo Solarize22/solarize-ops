@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, ensureAccessToJob, findCompanyUserById, getRequestContext } from "@/lib/normalized-api";
 import { isCrmInstalled, mapTaskRow } from "@/lib/job-crm";
 
 const VALID_PRIORITIES = new Set(["low", "medium", "high"]);
+const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -40,6 +41,12 @@ export async function POST(req, { params }) {
     if (!VALID_PRIORITIES.has(priority)) {
       return NextResponse.json({ error: "Invalid task priority" }, { status: 400 });
     }
+    const owner = ownerUserId
+      ? await findCompanyUserById(ctx.sql, access.company_id, ownerUserId, { roles: CRM_ASSIGNABLE_ROLES })
+      : null;
+    if (ownerUserId && !owner) {
+      return NextResponse.json({ error: "Selected task owner must be an active ops/admin/owner on this company." }, { status: 400 });
+    }
 
     const rows = await ctx.sql`
       insert into job_follow_up_tasks (
@@ -61,7 +68,7 @@ export async function POST(req, { params }) {
         'open'::follow_up_task_status,
         ${priority}::follow_up_task_priority,
         ${dueAt || null}::date,
-        ${ownerUserId || null}::uuid,
+        ${owner?.id || null}::uuid,
         ${ctx.appUser?.id || null},
         now(),
         now()

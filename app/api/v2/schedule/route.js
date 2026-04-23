@@ -74,12 +74,12 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json([]);
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const fieldTrackingInstalled = await isFieldTrackingInstalled(ctx.sql);
 
     const jobs = await ctx.sql`
@@ -103,13 +103,12 @@ export async function GET() {
       where j.company_id = ${company.id}
         and j.install_scheduled_at is not null
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by j.id
@@ -139,13 +138,12 @@ export async function GET() {
       where j.company_id = ${company.id}
         and i.scheduled_at is not null
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by i.id, j.job_number, j.customer_name, j.street_1, j.city, j.state
@@ -177,13 +175,12 @@ export async function GET() {
             and fv.visit_date is not null
             and fv.status <> 'cancelled'
             and (
-              ${installerName}::text is null
+              ${installerUserId}::uuid is null
               or exists(
                 select 1
                 from job_crew_assignments ax
-                join app_users ux on ux.id = ax.user_id
                 where ax.job_id = j.id
-                  and lower(ux.full_name) = lower(${installerName})
+                  and ax.user_id = ${installerUserId}::uuid
               )
             )
           order by fv.visit_date asc, fv.created_at asc

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { canManageJobOperations, ensureAccessToJob, findCompanyUserById, getRequestContext } from "@/lib/normalized-api";
 import { isCrmInstalled, mapTaskRow } from "@/lib/job-crm";
 
 const VALID_STATUSES = new Set(["open", "in_progress", "done"]);
 const VALID_PRIORITIES = new Set(["low", "medium", "high"]);
+const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {
   if (value === undefined || value === null) return null;
@@ -48,6 +49,7 @@ export async function PATCH(req, { params }) {
     const status = normalizeText(body?.status)?.toLowerCase() || task.status;
     const dueAt = body?.dueAt === undefined ? task.due_at : normalizeText(body?.dueAt);
     const ownerUserId = body?.ownerUserId === undefined ? task.owner_user_id : normalizeText(body?.ownerUserId);
+    const ownerProvided = body?.ownerUserId !== undefined;
 
     if (!title) {
       return NextResponse.json({ error: "Task title is required" }, { status: 400 });
@@ -58,6 +60,12 @@ export async function PATCH(req, { params }) {
     if (!VALID_STATUSES.has(status)) {
       return NextResponse.json({ error: "Invalid task status" }, { status: 400 });
     }
+    const owner = ownerProvided && ownerUserId
+      ? await findCompanyUserById(ctx.sql, access.company_id, ownerUserId, { roles: CRM_ASSIGNABLE_ROLES })
+      : null;
+    if (ownerProvided && ownerUserId && !owner) {
+      return NextResponse.json({ error: "Selected task owner must be an active ops/admin/owner on this company." }, { status: 400 });
+    }
 
     const rows = await ctx.sql`
       update job_follow_up_tasks
@@ -67,7 +75,7 @@ export async function PATCH(req, { params }) {
         priority = ${priority}::follow_up_task_priority,
         status = ${status}::follow_up_task_status,
         due_at = ${dueAt || null}::date,
-        owner_user_id = ${ownerUserId || null}::uuid,
+        owner_user_id = ${ownerProvided ? owner?.id || null : task.owner_user_id}::uuid,
         completed_at = case
           when ${status}::follow_up_task_status = 'done' then coalesce(completed_at, now())
           else null

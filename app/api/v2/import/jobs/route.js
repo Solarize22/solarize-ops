@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { syncCustomerForJob } from "@/lib/customer-crm";
 
 function dollarsToCents(value) {
   const amount = Number(value || 0);
@@ -380,10 +381,11 @@ async function createJob(sql, companyId, draft, actorId) {
         now(),
         now()
       )
-      returning id
+      returning id, customer_name, customer_phone, customer_email, street_1, street_2, city, state, postal_code, county
     `;
 
     const jobId = inserted[0].id;
+    await syncCustomerForJob(sql, companyId, jobId, inserted[0]);
     await syncCrewAssignments(sql, jobId, companyId, draft.crew || []);
     await syncInspectionFromImport(sql, {
       jobId,
@@ -473,7 +475,7 @@ async function updateJob(sql, companyId, draft, actorId) {
       draft.financials.m1.provided ||
       draft.financials.m2.provided;
 
-    await sql`
+    const updatedRows = await sql`
       update jobs
       set
         customer_name = coalesce(${draft.provided.customerName ? (draft.customerName || null) : null}, customer_name),
@@ -505,7 +507,10 @@ async function updateJob(sql, companyId, draft, actorId) {
         notes = coalesce(${draft.provided.notes ? (draft.job.notes || null) : null}, notes),
         updated_at = now()
       where id = ${jobId}
+      returning id, customer_name, customer_phone, customer_email, street_1, street_2, city, state, postal_code, county
     `;
+
+    await syncCustomerForJob(sql, companyId, jobId, updatedRows[0]);
 
     if (
       draft.provided.installScheduledAt ||
@@ -594,7 +599,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const company = await getNormalizedCompany(ctx.sql);
+  const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
   if (!company) {
     return NextResponse.json({ error: "No company found" }, { status: 400 });
   }
@@ -638,7 +643,7 @@ export async function PUT(req) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const company = await getNormalizedCompany(ctx.sql);
+  const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
   if (!company) {
     return NextResponse.json({ error: "No company found" }, { status: 400 });
   }

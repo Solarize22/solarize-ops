@@ -53,10 +53,10 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) return NextResponse.json([]);
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
 
     if (await isFieldTrackingInstalled(ctx.sql)) {
       const visitRows = await ctx.sql`
@@ -74,13 +74,12 @@ export async function GET() {
         where j.company_id = ${company.id}
           and v.visit_type in ('site_visit', 'service_call')
           and (
-            ${installerName}::text is null
+            ${installerUserId}::uuid is null
             or exists(
               select 1
               from job_crew_assignments ax
-              join app_users ux on ux.id = ax.user_id
               where ax.job_id = j.id
-                and lower(ux.full_name) = lower(${installerName})
+                and ax.user_id = ${installerUserId}::uuid
             )
           )
         order by
@@ -113,13 +112,12 @@ export async function GET() {
       where j.company_id = ${company.id}
         and j.current_status in ('on_hold', 'inspection_failed')
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by j.id

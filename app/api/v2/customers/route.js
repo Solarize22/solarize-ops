@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 import { isCrmInstalled } from "@/lib/job-crm";
-import { buildCustomerKey, chooseEarlierDate, chooseLaterDate, customerIdForKey } from "@/lib/customer-crm";
+import { chooseEarlierDate, chooseLaterDate, customerIdForRow } from "@/lib/customer-crm";
 
 export async function GET() {
   try {
@@ -10,30 +10,18 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json([]);
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const showFinancials = canSeeFinancials(ctx.appUser);
     const crmInstalled = await isCrmInstalled(ctx.sql);
 
     const rows = await ctx.sql`
       select
-        j.id,
-        j.job_number,
-        j.customer_name,
-        j.customer_phone,
-        j.customer_email,
-        j.street_1,
-        j.city,
-        j.state,
-        j.postal_code,
-        j.current_status,
-        j.current_status_changed_at,
-        j.last_contact_at,
-        j.next_follow_up_at,
+        j.*,
         rep.full_name as rep_name,
         follow_up_owner.full_name as follow_up_owner_name,
         coalesce(sum(case when i.status <> 'void' then i.balance_cents else 0 end), 0)::int as outstanding_cents,
@@ -64,13 +52,12 @@ export async function GET() {
       left join invoices i on i.job_id = j.id
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by j.id, rep.full_name, follow_up_owner.full_name
@@ -81,10 +68,10 @@ export async function GET() {
     const customers = new Map();
 
     rows.forEach((row) => {
-      const key = buildCustomerKey(row);
-      if (!customers.has(key)) {
-        customers.set(key, {
-          id: customerIdForKey(key),
+      const customerId = customerIdForRow(row);
+      if (!customers.has(customerId)) {
+        customers.set(customerId, {
+          id: customerId,
           name: row.customer_name,
           email: row.customer_email,
           phone: row.customer_phone,
@@ -107,7 +94,7 @@ export async function GET() {
         });
       }
 
-      const customer = customers.get(key);
+      const customer = customers.get(customerId);
       const isActive = !["paid_in_full", "cancelled"].includes(row.current_status);
       const hasRisk = ["inspection_failed", "on_hold"].includes(row.current_status)
         || Number(row.overdue_task_count || 0) > 0

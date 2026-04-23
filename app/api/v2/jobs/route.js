@@ -11,48 +11,19 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await getNormalizedCompany(ctx.sql);
+    const company = await getNormalizedCompany(ctx.sql, ctx.appUser);
     if (!company) {
       return NextResponse.json([]);
     }
 
-    const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
+    const installerUserId = ctx.appUser?.role === "installer" ? ctx.appUser.id || null : null;
     const showFinancials = canSeeFinancials(ctx.appUser);
     const crmInstalled = await isCrmInstalled(ctx.sql);
     const fieldTrackingInstalled = await isFieldTrackingInstalled(ctx.sql);
 
     const rows = await ctx.sql`
       select
-        j.id,
-        j.job_number,
-        j.customer_name,
-        j.customer_phone,
-        j.customer_email,
-        j.street_1,
-        j.city,
-        j.state,
-        j.postal_code,
-        j.contract_type,
-        j.financer,
-        j.contractor,
-        j.partner,
-        j.utility_company,
-        j.system_size_kw,
-        j.panel_count,
-        j.watt_per_panel,
-        j.inverter,
-        j.module,
-        j.battery,
-        j.roof_type,
-        j.install_scheduled_at,
-        j.install_completed_at,
-        j.pto_submitted_at,
-        j.pto_granted_at,
-        j.current_status,
-        j.current_status_changed_at,
-        j.last_contact_at,
-        j.next_follow_up_at,
-        j.notes,
+        j.*,
         inspection_summary.latest_inspection_scheduled_at,
         inspection_summary.latest_inspection_completed_at,
         inspection_summary.latest_inspection_result,
@@ -160,13 +131,12 @@ export async function GET() {
       left join invoices i on i.job_id = j.id
       where j.company_id = ${company.id}
         and (
-          ${installerName}::text is null
+          ${installerUserId}::uuid is null
           or exists(
             select 1
             from job_crew_assignments ax
-            join app_users ux on ux.id = ax.user_id
             where ax.job_id = j.id
-              and lower(ux.full_name) = lower(${installerName})
+              and ax.user_id = ${installerUserId}::uuid
           )
         )
       group by

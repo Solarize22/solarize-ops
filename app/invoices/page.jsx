@@ -13,7 +13,7 @@ const TYPES = ["All", "M1", "M2"];
 
 export default function InvoicesPage() {
   const router = useRouter();
-  const { loading: roleLoading, isOwner } = useUserRole();
+  const { loading: roleLoading, canSeeFinancials } = useUserRole();
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [search, setSearch] = useState("");
@@ -21,14 +21,35 @@ export default function InvoicesPage() {
   const [typeFilter, setTypeFilter] = useState("All");
 
   useEffect(() => {
-    if (!isOwner) return;
+    if (!canSeeFinancials) return;
     setLoadingInvoices(true);
     fetch("/api/v2/invoices")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setInvoices(Array.isArray(data) ? data : []))
       .catch(() => setInvoices([]))
       .finally(() => setLoadingInvoices(false));
-  }, [isOwner]);
+  }, [canSeeFinancials]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedStatus = params.get("status");
+    const requestedType = params.get("type");
+    const requestedSearch = params.get("search");
+
+    if (requestedStatus && STATUSES.includes(requestedStatus)) {
+      setStatusFilter(requestedStatus);
+    }
+
+    if (requestedType && TYPES.includes(requestedType)) {
+      setTypeFilter(requestedType);
+    }
+
+    if (requestedSearch) {
+      setSearch(requestedSearch);
+    }
+  }, []);
 
   // Must be before any early returns; hooks must always run in the same order.
   const filtered = useMemo(() => {
@@ -44,8 +65,8 @@ export default function InvoicesPage() {
   }, [invoices, search, statusFilter, typeFilter]);
 
   useEffect(() => {
-    if (!roleLoading && !isOwner) router.replace("/");
-  }, [roleLoading, isOwner, router]);
+    if (!roleLoading && !canSeeFinancials) router.replace("/");
+  }, [roleLoading, canSeeFinancials, router]);
 
   if (roleLoading) {
     return (
@@ -65,7 +86,7 @@ export default function InvoicesPage() {
     );
   }
 
-  if (!isOwner) {
+  if (!canSeeFinancials) {
     return (
       <AppShell>
         <div
@@ -81,7 +102,7 @@ export default function InvoicesPage() {
         >
           <Lock size={32} />
           <div style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Access restricted</div>
-          <div style={{ fontSize: 13 }}>Invoice data is only visible to owners.</div>
+          <div style={{ fontSize: 13 }}>Invoice data is only visible to financial roles.</div>
         </div>
       </AppShell>
     );
@@ -91,6 +112,18 @@ export default function InvoicesPage() {
   const pending = invoices.filter((i) => i.status === "Pending").reduce((s, i) => s + i.balanceCents, 0) / 100;
   const overdue = invoices.filter((i) => i.status === "Overdue").reduce((s, i) => s + i.balanceCents, 0) / 100;
   const overdueItems = invoices.filter((i) => i.status === "Overdue");
+  const hasFilteredView = statusFilter !== "All" || typeFilter !== "All" || search.trim().length > 0;
+  const filteredViewSummary = [
+    statusFilter !== "All" ? `Status: ${statusFilter}` : null,
+    typeFilter !== "All" ? `Milestone: ${typeFilter}` : null,
+    search.trim() ? `Search: "${search.trim()}"` : null,
+  ].filter(Boolean);
+
+  function clearFilteredView() {
+    setSearch("");
+    setStatusFilter("All");
+    setTypeFilter("All");
+  }
 
   return (
     <AppShell>
@@ -128,6 +161,35 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
+
+      {hasFilteredView ? (
+        <div
+          className="card"
+          style={{
+            padding: "12px 14px",
+            marginBottom: 16,
+            border: "1px solid #bfdbfe",
+            background: "#eff6ff",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#1d4ed8", marginBottom: 4 }}>
+              Filtered invoice view
+            </div>
+            <div style={{ fontSize: 12, color: "#36567b" }}>
+              {filteredViewSummary.join(" | ") || "This list is narrowed from the full invoice ledger."}
+            </div>
+          </div>
+          <button type="button" className="btn btn-outline" onClick={clearFilteredView}>
+            Clear drill-down
+          </button>
+        </div>
+      ) : null}
 
       <div className="stat-grid">
         <div className="stat-card">
@@ -194,11 +256,7 @@ export default function InvoicesPage() {
         {(search || statusFilter !== "All" || typeFilter !== "All") && (
           <button
             className="btn btn-ghost"
-            onClick={() => {
-              setSearch("");
-              setStatusFilter("All");
-              setTypeFilter("All");
-            }}
+            onClick={clearFilteredView}
           >
             Clear
           </button>

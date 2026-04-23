@@ -65,6 +65,27 @@ export default function CustomersPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedFilter = params.get("filter");
+    const requestedSort = params.get("sort");
+    const requestedSearch = params.get("search");
+
+    if (requestedFilter && FILTERS.some((item) => item.key === requestedFilter)) {
+      setFilter(requestedFilter);
+    }
+
+    if (requestedSort && SORTS.some((item) => item.key === requestedSort)) {
+      setSort(requestedSort);
+    }
+
+    if (requestedSearch) {
+      setSearch(requestedSearch);
+    }
+  }, []);
+
   const counts = useMemo(() => ({
     needsFollowUp: customers.filter((customer) => customer.needsFollowUp).length,
     atRisk: customers.filter((customer) => customer.atRiskJobCount > 0 || customer.overdueTaskCount > 0).length,
@@ -130,6 +151,18 @@ export default function CustomersPage() {
   }, [customers, filter, search, sort]);
 
   const totalOutstanding = useMemo(() => customers.reduce((sum, customer) => sum + (customer.totalOutstandingCents || 0), 0), [customers]);
+  const hasFilteredView = filter !== "all" || sort !== "attention" || search.trim().length > 0;
+  const filteredViewSummary = [
+    filter !== "all" ? FILTERS.find((item) => item.key === filter)?.label : null,
+    sort !== "attention" ? `Sorted by ${SORTS.find((item) => item.key === sort)?.label || sort}` : null,
+    search.trim() ? `Search: "${search.trim()}"` : null,
+  ].filter(Boolean);
+
+  function clearFilteredView() {
+    setSearch("");
+    setFilter("all");
+    setSort("attention");
+  }
 
   return (
     <AppShell>
@@ -167,6 +200,35 @@ export default function CustomersPage() {
           <div className="stat-detail">{canSeeFinancials ? "Across all linked jobs" : "Customers carrying active tasks"}</div>
         </div>
       </div>
+
+      {hasFilteredView ? (
+        <div
+          className="card"
+          style={{
+            padding: "12px 14px",
+            marginBottom: 14,
+            border: "1px solid #bfdbfe",
+            background: "#eff6ff",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#1d4ed8", marginBottom: 4 }}>
+              Filtered customer view
+            </div>
+            <div style={{ fontSize: 12, color: "#36567b" }}>
+              {filteredViewSummary.join(" | ") || "This list is narrowed from the full customer CRM."}
+            </div>
+          </div>
+          <button type="button" className="btn btn-outline" onClick={clearFilteredView}>
+            Clear drill-down
+          </button>
+        </div>
+      ) : null}
 
       <div className="card toolbar-card">
         <div className="toolbar-group" style={{ flex: "1 1 360px" }}>
@@ -207,11 +269,7 @@ export default function CustomersPage() {
           {(search || filter !== "all" || sort !== "attention") ? (
             <button
               className="btn btn-ghost"
-              onClick={() => {
-                setSearch("");
-                setFilter("all");
-                setSort("attention");
-              }}
+              onClick={clearFilteredView}
             >
               Clear
             </button>
