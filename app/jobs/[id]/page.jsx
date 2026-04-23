@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { formatCurrency, formatDate, formatDateTimeParts } from "@/lib/utils";
 import { ArrowLeft, CalendarDays, CircleDollarSign, ClipboardList, ShieldCheck, Home } from "lucide-react";
@@ -159,6 +159,7 @@ function EventLabel({ item }) {
 
 export default function JobDetailPage() {
   const { id } = useParams();
+  const router = useRouter();
   const { isOwner, isAdmin, loading: roleLoading } = useUserRole();
   const [job, setJob] = useState(null);
   const [invoices, setInvoices] = useState([]);
