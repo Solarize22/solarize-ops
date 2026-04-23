@@ -94,9 +94,14 @@ export default function InvoicesPage() {
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Invoices</h1>
-        <p>Review milestone billing, aging balances, and payment performance across the pipeline.</p>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1>Invoices</h1>
+          <p>Review milestone billing, aging balances, and payment performance across the pipeline.</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => router.push("/invoices/new")} style={{ flexShrink: 0, marginTop: 4 }}>
+          New Invoice
+        </button>
       </div>
 
       {overdueItems.length > 0 && (
@@ -236,17 +241,26 @@ export default function InvoicesPage() {
                 </tr>
               )}
               {filtered.map((inv) => (
-                <tr key={inv.id} style={inv.status === "Overdue" ? { background: "#fff5f5" } : {}}>
+                <tr
+                  key={inv.id}
+                  onClick={() => router.push(`/invoices/${inv.id}`)}
+                  style={{
+                    ...(inv.status === "Overdue" ? { background: "#fff5f5" } : {}),
+                    cursor: "pointer",
+                  }}
+                >
                   <td>
                     <span className="mono badge badge-slate">{inv.invoiceNumber}</span>
                   </td>
                   <td style={{ fontWeight: 500 }}>
-                    <Link href={`/jobs/${inv.jobNumber}`} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", textDecoration: "none" }}>
-                      {inv.customerName}
-                    </Link>
+                    {inv.customerName}
                   </td>
                   <td>
-                    <Link href={`/jobs/${inv.jobNumber}`} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
+                    <Link
+                      href={`/jobs/${inv.jobNumber}`}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ textDecoration: "none" }}
+                    >
                       <span className="mono badge badge-slate">{inv.jobNumber}</span>
                     </Link>
                   </td>

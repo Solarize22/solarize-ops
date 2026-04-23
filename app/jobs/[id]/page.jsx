@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { formatCurrency, formatDate, formatDateTimeParts } from "@/lib/utils";
 import { ArrowLeft, CalendarDays, CircleDollarSign, ClipboardList, ShieldCheck, Home } from "lucide-react";
@@ -159,6 +159,7 @@ function EventLabel({ item }) {
 
 export default function JobDetailPage() {
   const { id } = useParams();
+  const router = useRouter();
   const { isOwner, isAdmin, loading: roleLoading } = useUserRole();
   const [job, setJob] = useState(null);
   const [invoices, setInvoices] = useState([]);
@@ -171,8 +172,6 @@ export default function JobDetailPage() {
   const [editingJob, setEditingJob] = useState(false);
   const [jobForm, setJobForm] = useState(null);
   const [statusForm, setStatusForm] = useState({ toStatus: "scheduled", effectiveDate: "", note: "" });
-  const [invoiceForm, setInvoiceForm] = useState({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
-  const [paymentForm, setPaymentForm] = useState({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
   const [message, setMessage] = useState({ type: "", text: "" });
   const billingRef = useRef(null);
   const statusRef = useRef(null);
@@ -240,12 +239,6 @@ export default function JobDetailPage() {
     });
   }, [job]);
 
-  useEffect(() => {
-    if (!paymentForm.invoiceId && invoices.length > 0) {
-      const openInvoice = invoices.find((invoice) => (invoice.balanceCents || 0) > 0);
-      if (openInvoice) setPaymentForm((prev) => ({ ...prev, invoiceId: openInvoice.id }));
-    }
-  }, [invoices, paymentForm.invoiceId]);
 
   const invoiceSummary = useMemo(() => {
     const total = invoices.reduce((sum, item) => sum + (item.totalCents || 0), 0);
@@ -281,9 +274,6 @@ export default function JobDetailPage() {
     if (isOwner && ["pto_granted", "m1_paid"].includes(job.currentStatus)) {
       actions.push({ label: "Prepare M2 invoice", kind: "invoice", invoiceType: "M2" });
     }
-    if (isOwner && invoices.some((invoice) => (invoice.balanceCents || 0) > 0)) {
-      actions.push({ label: "Record payment", kind: "payment" });
-    }
     if (canManageOps && ["inspection_failed", "on_hold"].includes(job.currentStatus)) {
       actions.push({ label: "Move to on hold", kind: "status", toStatus: "on_hold", note: "Job placed on hold from command center", date: today });
     }
@@ -309,43 +299,6 @@ export default function JobDetailPage() {
     }
   }
 
-  async function handleInvoiceSubmit(e) {
-    e.preventDefault();
-    setMessage({ type: "", text: "" });
-    try {
-      const res = await fetch(`/api/v2/jobs/${id}/invoices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(invoiceForm),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to create invoice");
-      setInvoiceForm({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
-      setMessage({ type: "success", text: "Invoice created." });
-      setRefreshKey((v) => v + 1);
-    } catch (err) {
-      setMessage({ type: "error", text: err.message || "Failed to create invoice" });
-    }
-  }
-
-  async function handlePaymentSubmit(e) {
-    e.preventDefault();
-    setMessage({ type: "", text: "" });
-    try {
-      const res = await fetch("/api/v2/payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(paymentForm),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to record payment");
-      setPaymentForm({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
-      setMessage({ type: "success", text: "Payment recorded." });
-      setRefreshKey((v) => v + 1);
-    } catch (err) {
-      setMessage({ type: "error", text: err.message || "Failed to record payment" });
-    }
-  }
 
   async function handleJobSave(e) {
     e.preventDefault();
@@ -388,14 +341,7 @@ export default function JobDetailPage() {
   }
 
   function runQuickInvoiceAction(action) {
-    billingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setInvoiceForm((prev) => ({
-      ...prev,
-      invoiceType: action.invoiceType,
-      issuedAt: prev.issuedAt || new Date().toISOString().slice(0, 10),
-      description: action.invoiceType === "M1" ? "Milestone 1" : action.invoiceType === "M2" ? "Milestone 2" : prev.description,
-    }));
-    setMessage({ type: "success", text: `${action.invoiceType} form is ready below.` });
+    router.push(`/invoices/new?jobId=${id}&type=${action.invoiceType}`);
   }
 
   function runQuickPaymentAction() {
@@ -659,40 +605,39 @@ export default function JobDetailPage() {
             {invoices.length > 0 ? (
               <div className="table-wrap" style={{ marginBottom: 14 }}>
                 <table><thead><tr><th>Invoice</th><th>Type</th><th>Status</th><th>Issued</th><th>Total</th><th>Balance</th></tr></thead><tbody>
-                  {invoices.map((invoice) => <tr key={invoice.id}><td><span className="mono badge badge-slate">{invoice.invoiceNumber}</span></td><td>{invoice.invoiceType}</td><td>{invoice.status}</td><td>{formatDate(invoice.issuedAt)}</td><td>{formatCurrency((invoice.totalCents || 0) / 100)}</td><td>{formatCurrency((invoice.balanceCents || 0) / 100)}</td></tr>)}
+                  {invoices.map((invoice) => (
+                    <tr key={invoice.id} onClick={() => router.push(`/invoices/${invoice.id}`)} style={{ cursor: "pointer" }}>
+                      <td><span className="mono badge badge-slate">{invoice.invoiceNumber}</span></td>
+                      <td>{invoice.invoiceType}</td>
+                      <td>{invoice.status}</td>
+                      <td>{formatDate(invoice.issuedAt)}</td>
+                      <td>{formatCurrency((invoice.totalCents || 0) / 100)}</td>
+                      <td>{formatCurrency((invoice.balanceCents || 0) / 100)}</td>
+                    </tr>
+                  ))}
                 </tbody></table>
               </div>
             ) : null}
-            {isOwner ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <form onSubmit={handleInvoiceSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>Create invoice</div>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <select value={invoiceForm.invoiceType} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoiceType: e.target.value }))}>{INVOICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select>
-                    <input value={invoiceForm.invoiceNumber} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoiceNumber: e.target.value }))} placeholder="Invoice number" />
-                    <input type="number" step="0.01" value={invoiceForm.amount} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" />
-                    <input type="date" value={invoiceForm.issuedAt} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, issuedAt: e.target.value }))} />
-                    <input type="date" value={invoiceForm.dueAt} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, dueAt: e.target.value }))} />
-                    <input value={invoiceForm.description} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, description: e.target.value }))} placeholder="Description" />
-                    <button className="btn btn-primary" type="submit">Create invoice</button>
-                  </div>
-                </form>
-                <form onSubmit={handlePaymentSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>Record payment</div>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <select value={paymentForm.invoiceId} onChange={(e) => setPaymentForm((prev) => ({ ...prev, invoiceId: e.target.value }))}>
-                      <option value="">Select invoice</option>
-                      {invoices.filter((invoice) => (invoice.balanceCents || 0) > 0).map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.invoiceNumber} | {formatCurrency((invoice.balanceCents || 0) / 100)}</option>)}
-                    </select>
-                    <input type="number" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" />
-                    <select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((prev) => ({ ...prev, paymentMethod: e.target.value }))}>{PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}</select>
-                    <input type="date" value={paymentForm.receivedAt} onChange={(e) => setPaymentForm((prev) => ({ ...prev, receivedAt: e.target.value }))} />
-                    <input value={paymentForm.paymentReference} onChange={(e) => setPaymentForm((prev) => ({ ...prev, paymentReference: e.target.value }))} placeholder="Reference" />
-                    <button className="btn btn-primary" type="submit">Record payment</button>
-                  </div>
-                </form>
+            {isOwner && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {!invoices.find((inv) => inv.invoiceType === "M1") && (
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => router.push(`/invoices/new?jobId=${id}&type=M1`)}
+                  >
+                    Create M1 Invoice
+                  </button>
+                )}
+                {!invoices.find((inv) => inv.invoiceType === "M2") && (
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => router.push(`/invoices/new?jobId=${id}&type=M2`)}
+                  >
+                    Create M2 Invoice
+                  </button>
+                )}
               </div>
-            ) : null}
+            )}
           </ActionPanel>
           </div>
           ) : null}
@@ -748,7 +693,6 @@ export default function JobDetailPage() {
                     onClick={() => {
                       if (action.kind === "status") return runQuickStatusAction(action);
                       if (action.kind === "invoice") return runQuickInvoiceAction(action);
-                      if (action.kind === "payment") return runQuickPaymentAction();
                     }}
                   >
                     {action.label}
