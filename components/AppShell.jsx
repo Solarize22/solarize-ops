@@ -13,11 +13,13 @@ import {
   Upload,
   Shield,
   Settings,
+  Users,
 } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
 
 const ALL_NAV = [
-  { href: "/",           label: "Dashboard",      icon: Home,          roles: null },
+  { href: "/",           label: "Command center", icon: Home,          roles: null },
+  { href: "/customers",  label: "Customers",      icon: Users,         roles: null },
   { href: "/jobs",       label: "Jobs",            icon: ClipboardList, roles: null },
   { href: "/scheduling", label: "Scheduling",      icon: CalendarDays,  roles: ["owner","admin","installer"] },
   { href: "/invoices",   label: "Invoices",        icon: DollarSign,    roles: ["owner"] },
@@ -111,10 +113,10 @@ function SidebarContent({ children }) {
           <div className="sidebar-card-title">Today's focus</div>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
             {role === "installer"
-              ? "Check your assigned jobs and update install status."
+              ? "Confirm your next field touchpoints and update job movement quickly."
               : role === "salesperson"
-              ? "Track your leads and keep the pipeline moving."
-              : "Keep installs moving, resolve issues, and chase down missing M2 payments."}
+              ? "Work follow-ups, keep homeowner communication warm, and move the pipeline."
+              : "Lead with follow-up, unblock customers, and keep installs and billing moving."}
           </div>
         </div>
       </aside>

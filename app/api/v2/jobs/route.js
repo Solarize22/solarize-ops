@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
+import { isCrmInstalled } from "@/lib/job-crm";
+import { customerIdentityForRow } from "@/lib/customer-crm";
 
 export async function GET() {
   try {
@@ -15,6 +17,7 @@ export async function GET() {
 
     const installerName = ctx.appUser?.role === "installer" ? ctx.appUser.name || "" : null;
     const showFinancials = canSeeFinancials(ctx.appUser);
+    const crmInstalled = await isCrmInstalled(ctx.sql);
 
     const rows = await ctx.sql`
       select
@@ -45,16 +48,40 @@ export async function GET() {
         j.pto_granted_at,
         j.current_status,
         j.current_status_changed_at,
+        j.last_contact_at,
+        j.next_follow_up_at,
         j.notes,
         inspection_summary.latest_inspection_scheduled_at,
         inspection_summary.latest_inspection_completed_at,
         rep.full_name as rep_name,
+        follow_up_owner.full_name as follow_up_owner_name,
         coalesce(
           json_agg(distinct crew.full_name) filter (where crew.full_name is not null),
           '[]'::json
         ) as crew_names,
         coalesce(sum(case when i.status <> 'void' then i.total_cents else 0 end), 0)::int as total_invoiced_cents,
-        coalesce(sum(case when i.status <> 'void' then i.balance_cents else 0 end), 0)::int as outstanding_cents
+        coalesce(sum(case when i.status <> 'void' then i.balance_cents else 0 end), 0)::int as outstanding_cents,
+        ${crmInstalled}::boolean as crm_installed,
+        case
+          when ${crmInstalled}::boolean then (
+            select count(*)::int
+            from job_follow_up_tasks t
+            where t.job_id = j.id
+              and t.status <> 'done'
+          )
+          else 0
+        end as open_task_count,
+        case
+          when ${crmInstalled}::boolean then (
+            select count(*)::int
+            from job_follow_up_tasks t
+            where t.job_id = j.id
+              and t.status <> 'done'
+              and t.due_at is not null
+              and t.due_at < current_date
+          )
+          else 0
+        end as overdue_task_count
       from jobs j
       left join lateral (
         select
@@ -64,6 +91,7 @@ export async function GET() {
         where ins.job_id = j.id
       ) inspection_summary on true
       left join app_users rep on rep.id = j.rep_user_id
+      left join app_users follow_up_owner on follow_up_owner.id = j.follow_up_owner_id
       left join job_crew_assignments a on a.job_id = j.id
       left join app_users crew on crew.id = a.user_id
       left join invoices i on i.job_id = j.id
@@ -81,51 +109,65 @@ export async function GET() {
       group by
         j.id,
         rep.full_name,
+        follow_up_owner.full_name,
         inspection_summary.latest_inspection_scheduled_at,
         inspection_summary.latest_inspection_completed_at
       order by j.created_at desc
     `;
 
-    const data = rows.map((row) => ({
-      id: row.id,
-      jobNumber: row.job_number,
-      customerName: row.customer_name,
-      customerPhone: row.customer_phone,
-      customerEmail: row.customer_email,
-      address: {
-        street1: row.street_1,
-        city: row.city,
-        state: row.state,
-        postalCode: row.postal_code,
-      },
-      contractType: row.contract_type,
-      financer: showFinancials ? row.financer : null,
-      contractor: row.contractor,
-      partner: row.partner,
-      utilityCompany: row.utility_company,
-      systemSizeKw: row.system_size_kw,
-      panelCount: row.panel_count,
-      wattPerPanel: row.watt_per_panel,
-      inverter: row.inverter,
-      module: row.module,
-      battery: row.battery,
-      roofType: row.roof_type,
-      installScheduledAt: row.install_scheduled_at,
-      installCompletedAt: row.install_completed_at,
-      inspectionScheduledAt: row.latest_inspection_scheduled_at,
-      inspectionCompletedAt: row.latest_inspection_completed_at,
-      ptoSubmittedAt: row.pto_submitted_at,
-      ptoGrantedAt: row.pto_granted_at,
-      currentStatus: row.current_status,
-      currentStatusChangedAt: row.current_status_changed_at,
-      repName: row.rep_name,
-      crewNames: row.crew_names || [],
-      notes: row.notes,
-      financialSummary: showFinancials ? {
-        totalInvoicedCents: row.total_invoiced_cents,
-        outstandingCents: row.outstanding_cents,
-      } : null,
-    }));
+    const data = rows.map((row) => {
+      const customerIdentity = customerIdentityForRow(row);
+
+      return {
+        id: row.id,
+        jobNumber: row.job_number,
+        customerId: customerIdentity.customerId,
+        customerPath: customerIdentity.customerPath,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerEmail: row.customer_email,
+        address: {
+          street1: row.street_1,
+          city: row.city,
+          state: row.state,
+          postalCode: row.postal_code,
+        },
+        contractType: row.contract_type,
+        financer: showFinancials ? row.financer : null,
+        contractor: row.contractor,
+        partner: row.partner,
+        utilityCompany: row.utility_company,
+        systemSizeKw: row.system_size_kw,
+        panelCount: row.panel_count,
+        wattPerPanel: row.watt_per_panel,
+        inverter: row.inverter,
+        module: row.module,
+        battery: row.battery,
+        roofType: row.roof_type,
+        installScheduledAt: row.install_scheduled_at,
+        installCompletedAt: row.install_completed_at,
+        inspectionScheduledAt: row.latest_inspection_scheduled_at,
+        inspectionCompletedAt: row.latest_inspection_completed_at,
+        ptoSubmittedAt: row.pto_submitted_at,
+        ptoGrantedAt: row.pto_granted_at,
+        currentStatus: row.current_status,
+        currentStatusChangedAt: row.current_status_changed_at,
+        repName: row.rep_name,
+        crewNames: row.crew_names || [],
+        notes: row.notes,
+        crmSummary: row.crm_installed ? {
+          lastContactAt: row.last_contact_at,
+          nextFollowUpAt: row.next_follow_up_at,
+          followUpOwnerName: row.follow_up_owner_name,
+          openTaskCount: row.open_task_count,
+          overdueTaskCount: row.overdue_task_count,
+        } : null,
+        financialSummary: showFinancials ? {
+          totalInvoicedCents: row.total_invoiced_cents,
+          outstandingCents: row.outstanding_cents,
+        } : null,
+      };
+    });
 
     return NextResponse.json(data);
   } catch (error) {

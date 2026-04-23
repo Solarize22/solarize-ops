@@ -1,34 +1,8 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { canTransitionStatus, getAllowedStatusTransitions, getMilestoneUpdates, JOB_STATUS_OPTIONS } from "@/lib/job-workflow";
 
-const VALID_STATUSES = new Set([
-  "created",
-  "scheduled",
-  "install_completed",
-  "inspection_scheduled",
-  "inspection_passed",
-  "inspection_failed",
-  "pto_submitted",
-  "pto_granted",
-  "m1_invoiced",
-  "m1_partially_paid",
-  "m1_paid",
-  "m2_invoiced",
-  "m2_partially_paid",
-  "paid_in_full",
-  "on_hold",
-  "cancelled",
-]);
-
-function milestoneUpdates(nextStatus, effectiveDate) {
-  const updates = {};
-  if (!effectiveDate) return updates;
-  if (nextStatus === "scheduled") updates.install_scheduled_at = effectiveDate;
-  if (nextStatus === "install_completed") updates.install_completed_at = effectiveDate;
-  if (nextStatus === "pto_submitted") updates.pto_submitted_at = effectiveDate;
-  if (nextStatus === "pto_granted") updates.pto_granted_at = effectiveDate;
-  return updates;
-}
+const VALID_STATUSES = new Set(JOB_STATUS_OPTIONS);
 
 export async function POST(req, { params }) {
   const ctx = await getRequestContext();
@@ -47,12 +21,27 @@ export async function POST(req, { params }) {
   const nextStatus = String(body?.toStatus || "").trim();
   const note = String(body?.note || "").trim() || null;
   const effectiveDate = body?.effectiveDate || null;
+  const currentStatus = String(access.current_status || "").trim();
 
   if (!VALID_STATUSES.has(nextStatus)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
-  const milestone = milestoneUpdates(nextStatus, effectiveDate);
+  if (nextStatus === currentStatus) {
+    return NextResponse.json({ error: "Job is already in that status" }, { status: 400 });
+  }
+
+  if (!canTransitionStatus(currentStatus, nextStatus)) {
+    const allowedStatuses = getAllowedStatusTransitions(currentStatus);
+    return NextResponse.json({
+      error: allowedStatuses.length > 0
+        ? `Cannot move from ${currentStatus} to ${nextStatus}. Allowed next statuses: ${allowedStatuses.join(", ")}.`
+        : `Cannot move a job from ${currentStatus}.`,
+      allowedStatuses,
+    }, { status: 400 });
+  }
+
+  const milestone = getMilestoneUpdates(nextStatus, effectiveDate);
 
   try {
     await ctx.sql`begin`;
@@ -82,7 +71,7 @@ export async function POST(req, { params }) {
       )
       values (
         ${access.id},
-        null,
+        ${currentStatus}::job_status,
         ${nextStatus}::job_status,
         'status_changed'::status_event_type,
         now(),

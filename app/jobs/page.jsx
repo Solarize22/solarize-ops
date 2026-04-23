@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { CalendarDays, CircleDollarSign, ClipboardList, AlertTriangle, ChevronRight, Search, ArrowUp, ArrowDown, MessageSquareMore, UserRound } from "lucide-react";
+import { getWorkflowAdvanceAction } from "@/lib/job-workflow";
 import { formatCurrency, formatDate, getJobSortTime, getJobWorkflowDate } from "@/lib/utils";
 import { useUserRole } from "@/lib/useUserRole";
 
@@ -79,6 +80,7 @@ const QUEUES = [
 
 const JOBS_WORKLIST_COLUMNS_KEY = "jobs-worklist-columns-v1";
 const JOBS_WORKLIST_SORT_KEY = "jobs-worklist-sort-v1";
+const JOBS_WORKLIST_CRM_FILTER_KEY = "jobs-worklist-crm-filter-v1";
 
 const DEFAULT_VISIBLE_COLUMNS = {
   installScheduledDate: false,
@@ -92,9 +94,21 @@ const DEFAULT_VISIBLE_COLUMNS = {
   status: true,
   nextStep: true,
   workflowDate: true,
+  lastContact: true,
+  nextFollowUp: true,
+  followUpOwner: false,
+  openTasks: false,
   rep: false,
   outstanding: false,
 };
+
+const CRM_FILTERS = [
+  { key: "all", label: "All CRM signals" },
+  { key: "overdueFollowUp", label: "Overdue follow-up" },
+  { key: "noRecentContact", label: "No recent contact" },
+  { key: "openTasks", label: "Open tasks" },
+  { key: "crmRisk", label: "CRM risk" },
+];
 
 function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.created;
@@ -105,19 +119,19 @@ function nextAction(job) {
     case "created":
       return "Schedule install";
     case "scheduled":
-      return "Confirm crew";
+      return "Close install";
     case "install_completed":
-      return "Create M1 invoice";
+      return "Schedule inspection";
     case "inspection_scheduled":
-      return "Track inspection";
+      return "Log inspection result";
     case "inspection_failed":
-      return "Fix and reschedule";
+      return "Reschedule inspection";
     case "inspection_passed":
-      return "Push PTO";
+      return "Submit PTO";
     case "pto_submitted":
-      return "Watch utility PTO";
+      return "Track utility PTO";
     case "pto_granted":
-      return "Create M2 invoice";
+      return "Start final billing";
     case "m1_invoiced":
     case "m1_partially_paid":
       return "Collect M1";
@@ -141,6 +155,40 @@ function queueSort(job) {
 
 function getInspectionDate(job) {
   return job.inspectionCompletedAt || job.inspectionScheduledAt || null;
+}
+
+function getLastContactDate(job) {
+  return job.crmSummary?.lastContactAt || null;
+}
+
+function getNextFollowUpDate(job) {
+  return job.crmSummary?.nextFollowUpAt || null;
+}
+
+function getOpenTaskCount(job) {
+  return job.crmSummary?.openTaskCount ?? 0;
+}
+
+function getOverdueTaskCount(job) {
+  return job.crmSummary?.overdueTaskCount ?? 0;
+}
+
+function hasCrmRisk(job) {
+  const overdueTasks = getOverdueTaskCount(job);
+  const nextFollowUp = getNextFollowUpDate(job);
+  const lastContact = getLastContactDate(job);
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (overdueTasks > 0) return true;
+  if (nextFollowUp && String(nextFollowUp) < today) return true;
+  if (lastContact) {
+    const lastContactTime = new Date(lastContact).getTime();
+    if (!Number.isNaN(lastContactTime)) {
+      const days = Math.floor((Date.now() - lastContactTime) / 86400000);
+      if (days >= 7) return true;
+    }
+  }
+  return false;
 }
 
 function getFullAddress(job) {
@@ -199,6 +247,14 @@ function getSortValue(job, key) {
       return nextAction(job);
     case "workflowDate":
       return queueSort(job);
+    case "lastContact":
+      return getLastContactDate(job) ? new Date(getLastContactDate(job)).getTime() : null;
+    case "nextFollowUp":
+      return getNextFollowUpDate(job) ? new Date(getNextFollowUpDate(job)).getTime() : null;
+    case "followUpOwner":
+      return job.crmSummary?.followUpOwnerName || "";
+    case "openTasks":
+      return getOpenTaskCount(job);
     case "rep":
       return job.repName || "";
     case "outstanding":
@@ -223,6 +279,7 @@ function matchesWorklistSearch(job, searchTerm) {
     job.jobNumber,
     job.customerName,
     job.repName,
+    job.crmSummary?.followUpOwnerName,
     getFullAddress(job),
     job.address?.city,
     job.address?.state,
@@ -238,7 +295,7 @@ function matchesWorklistSearch(job, searchTerm) {
 }
 
 export default function JobsPage() {
-  const { canSeeFinancials, loading: roleLoading } = useUserRole();
+  const { canSeeFinancials, isAdmin, isOwner, loading: roleLoading, role } = useUserRole();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeQueueKey, setActiveQueueKey] = useState("all");
@@ -247,18 +304,30 @@ export default function JobsPage() {
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortState, setSortState] = useState({ key: "workflowDate", direction: "asc" });
+  const [crmFilter, setCrmFilter] = useState("all");
+  const [boardMessage, setBoardMessage] = useState({ type: "", text: "" });
+  const [updatingJobId, setUpdatingJobId] = useState("");
   const [visibleColumns, setVisibleColumns] = useState({
     ...DEFAULT_VISIBLE_COLUMNS,
     outstanding: canSeeFinancials,
   });
+  const canManageOps = isOwner || isAdmin || role === "ops";
+
+  async function loadJobs() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/v2/jobs");
+      const data = response.ok ? await response.json().catch(() => []) : [];
+      setJobs(Array.isArray(data) ? data : []);
+    } catch {
+      setJobs([]);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    setLoading(true);
-    fetch("/api/v2/jobs")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setJobs(Array.isArray(data) ? data : []))
-      .catch(() => setJobs([]))
-      .finally(() => setLoading(false));
+    loadJobs();
   }, []);
 
   useEffect(() => {
@@ -291,6 +360,11 @@ export default function JobsPage() {
             direction: parsedSort.direction,
           });
         }
+      }
+
+      const savedCrmFilter = window.localStorage.getItem(JOBS_WORKLIST_CRM_FILTER_KEY);
+      if (savedCrmFilter && CRM_FILTERS.some((filter) => filter.key === savedCrmFilter)) {
+        setCrmFilter(savedCrmFilter);
       }
     } catch {
       // Ignore malformed saved preferences and fall back to defaults.
@@ -346,7 +420,28 @@ export default function JobsPage() {
 
   const worklist = useMemo(() => {
     const sourceJobs = activeQueue ? activeQueue.jobs : showAllJobs ? jobs : activeJobs;
-    const filteredJobs = sourceJobs.filter((job) => matchesWorklistSearch(job, normalizedSearchTerm));
+    const crmFilteredJobs = sourceJobs.filter((job) => {
+      switch (crmFilter) {
+        case "overdueFollowUp": {
+          const nextFollowUp = getNextFollowUpDate(job);
+          return !!nextFollowUp && String(nextFollowUp) < new Date().toISOString().slice(0, 10);
+        }
+        case "noRecentContact": {
+          const lastContact = getLastContactDate(job);
+          if (!lastContact) return true;
+          const lastContactTime = new Date(lastContact).getTime();
+          if (Number.isNaN(lastContactTime)) return false;
+          return Math.floor((Date.now() - lastContactTime) / 86400000) >= 7;
+        }
+        case "openTasks":
+          return getOpenTaskCount(job) > 0;
+        case "crmRisk":
+          return hasCrmRisk(job);
+        default:
+          return true;
+      }
+    });
+    const filteredJobs = crmFilteredJobs.filter((job) => matchesWorklistSearch(job, normalizedSearchTerm));
     const sortedJobs = [...filteredJobs].sort((a, b) => {
       const primary = compareValues(getSortValue(a, sortState.key), getSortValue(b, sortState.key), sortState.direction);
       if (primary !== 0) return primary;
@@ -354,7 +449,7 @@ export default function JobsPage() {
     });
 
     return sortedJobs.slice(0, 100);
-  }, [activeJobs, activeQueue, jobs, normalizedSearchTerm, showAllJobs, sortState]);
+  }, [activeJobs, activeQueue, crmFilter, jobs, normalizedSearchTerm, showAllJobs, sortState]);
 
   useEffect(() => {
     setVisibleColumns((current) => ({
@@ -373,6 +468,27 @@ export default function JobsPage() {
     window.localStorage.setItem(JOBS_WORKLIST_SORT_KEY, JSON.stringify(sortState));
   }, [preferencesReady, sortState]);
 
+  useEffect(() => {
+    if (!preferencesReady || typeof window === "undefined") return;
+    window.localStorage.setItem(JOBS_WORKLIST_CRM_FILTER_KEY, crmFilter);
+  }, [crmFilter, preferencesReady]);
+
+  const crmCounts = useMemo(() => ({
+    overdueFollowUp: activeJobs.filter((job) => {
+      const nextFollowUp = getNextFollowUpDate(job);
+      return !!nextFollowUp && String(nextFollowUp) < new Date().toISOString().slice(0, 10);
+    }).length,
+    noRecentContact: activeJobs.filter((job) => {
+      const lastContact = getLastContactDate(job);
+      if (!lastContact) return true;
+      const lastContactTime = new Date(lastContact).getTime();
+      if (Number.isNaN(lastContactTime)) return false;
+      return Math.floor((Date.now() - lastContactTime) / 86400000) >= 7;
+    }).length,
+    openTasks: activeJobs.filter((job) => getOpenTaskCount(job) > 0).length,
+    crmRisk: activeJobs.filter((job) => hasCrmRisk(job)).length,
+  }), [activeJobs]);
+
   const optionalColumns = [
     { key: "installScheduledDate", label: "Install scheduled" },
     { key: "installCompletedDate", label: "Install completed" },
@@ -385,6 +501,10 @@ export default function JobsPage() {
     { key: "status", label: "Status" },
     { key: "nextStep", label: "Next step" },
     { key: "workflowDate", label: "Workflow date" },
+    { key: "lastContact", label: "Last contact" },
+    { key: "nextFollowUp", label: "Next follow-up" },
+    { key: "followUpOwner", label: "Follow-up owner" },
+    { key: "openTasks", label: "Open tasks" },
     { key: "rep", label: "Rep" },
     ...(canSeeFinancials ? [{ key: "outstanding", label: "Outstanding" }] : []),
   ];
@@ -404,6 +524,10 @@ export default function JobsPage() {
     ...(visibleColumns.status ? [{ key: "status", label: "Status" }] : []),
     ...(visibleColumns.nextStep ? [{ key: "nextStep", label: "Next step" }] : []),
     ...(visibleColumns.workflowDate ? [{ key: "workflowDate", label: "Workflow date" }] : []),
+    ...(visibleColumns.lastContact ? [{ key: "lastContact", label: "Last contact" }] : []),
+    ...(visibleColumns.nextFollowUp ? [{ key: "nextFollowUp", label: "Next follow-up" }] : []),
+    ...(visibleColumns.followUpOwner ? [{ key: "followUpOwner", label: "Follow-up owner" }] : []),
+    ...(visibleColumns.openTasks ? [{ key: "openTasks", label: "Open tasks" }] : []),
     ...(visibleColumns.rep ? [{ key: "rep", label: "Rep" }] : []),
     ...(canSeeFinancials && visibleColumns.outstanding ? [{ key: "outstanding", label: "Outstanding" }] : []),
   ];
@@ -434,12 +558,39 @@ export default function JobsPage() {
     setShowAllJobs(false);
   }
 
+  async function runBoardQuickAction(event, job, action) {
+    event.preventDefault();
+    event.stopPropagation();
+    setBoardMessage({ type: "", text: "" });
+    setUpdatingJobId(job.id);
+
+    try {
+      const res = await fetch(`/api/v2/jobs/${job.jobNumber}/status-transitions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toStatus: action.toStatus,
+          effectiveDate: action.effectiveDate,
+          note: action.note,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to move job forward");
+      setBoardMessage({ type: "success", text: `${job.jobNumber} moved to ${statusMeta(action.toStatus).label}.` });
+      await loadJobs();
+    } catch (error) {
+      setBoardMessage({ type: "error", text: error.message || "Failed to move job forward" });
+    } finally {
+      setUpdatingJobId("");
+    }
+  }
+
   return (
     <AppShell>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <h1>Daily action board</h1>
-          <p>Use the queues below to work installs, invoices, PTO, collections, and problem jobs.</p>
+          <p>Use the queues and CRM filters below to work installs, homeowner follow-up, invoices, PTO, and problem jobs.</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {canSeeFinancials ? (
@@ -454,6 +605,46 @@ export default function JobsPage() {
 
       <div style={{ marginBottom: 18, fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
         {loading || roleLoading ? "Loading..." : showAllJobs ? `Showing ${jobs.length} total jobs` : `Showing ${activeJobs.length} active jobs`}
+      </div>
+
+      {boardMessage.text ? (
+        <div
+          className="card"
+          style={{
+            marginBottom: 18,
+            padding: "12px 14px",
+            border: boardMessage.type === "error" ? "1px solid #fecaca" : "1px solid #bbf7d0",
+            background: boardMessage.type === "error" ? "#fff5f5" : "#f0fdf4",
+            color: boardMessage.type === "error" ? "#991b1b" : "#166534",
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {boardMessage.text}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
+          <MessageSquareMore size={14} />
+          CRM focus
+        </div>
+        <div className="segmented-control">
+          {CRM_FILTERS.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              onClick={() => setCrmFilter(filter.key)}
+              className={`segmented-button ${crmFilter === filter.key ? "active" : ""}`}
+            >
+              {filter.label}
+              {filter.key === "overdueFollowUp" ? ` (${crmCounts.overdueFollowUp})` : ""}
+              {filter.key === "noRecentContact" ? ` (${crmCounts.noRecentContact})` : ""}
+              {filter.key === "openTasks" ? ` (${crmCounts.openTasks})` : ""}
+              {filter.key === "crmRisk" ? ` (${crmCounts.crmRisk})` : ""}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginBottom: 20 }}>
@@ -535,6 +726,7 @@ export default function JobsPage() {
             </div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
               {activeQueue ? activeQueue.description : showAllJobs ? "Showing every job, including closed and cancelled records." : "Showing the full active pipeline."}
+              {crmFilter !== "all" ? ` CRM filter: ${CRM_FILTERS.find((filter) => filter.key === crmFilter)?.label || "All CRM signals"}.` : ""}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
@@ -714,6 +906,19 @@ export default function JobsPage() {
                       color: "var(--text-secondary)",
                       whiteSpace: "nowrap",
                     }}
+                  >
+                    Advance
+                  </th>
+                  <th
+                    style={{
+                      padding: "10px 12px",
+                      textAlign: "left",
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      letterSpacing: ".05em",
+                      color: "var(--text-secondary)",
+                      whiteSpace: "nowrap",
+                    }}
                   />
                 </tr>
               </thead>
@@ -721,8 +926,10 @@ export default function JobsPage() {
                 {worklist.map((job, index) => {
                   const status = statusMeta(job.currentStatus);
                   const issue = ["inspection_failed", "on_hold"].includes(job.currentStatus);
+                  const crmRisk = hasCrmRisk(job);
                   const fullAddress = getFullAddress(job);
                   const inspectionDate = getInspectionDate(job);
+                  const workflowAction = canManageOps ? getWorkflowAdvanceAction(job, "Jobs board") : null;
                   return (
                     <tr
                       key={job.id}
@@ -730,7 +937,7 @@ export default function JobsPage() {
                       style={{
                         cursor: "pointer",
                         borderBottom: "1px solid var(--border)",
-                        background: issue ? "var(--red-bg)" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
+                        background: issue ? "var(--red-bg)" : crmRisk ? "#fff8e8" : index % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
                       }}
                     >
                       <td style={cellStyle({ whiteSpace: "nowrap" })}>
@@ -739,8 +946,19 @@ export default function JobsPage() {
                       <td style={cellStyle({ minWidth: 180 })}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {issue && <AlertTriangle size={13} style={{ color: "#dc2626", flexShrink: 0 }} />}
+                          {!issue && crmRisk ? <MessageSquareMore size={13} style={{ color: "#b36f10", flexShrink: 0 }} /> : null}
                           <div>
                             <div style={{ fontWeight: 700 }}>{job.customerName}</div>
+                            {job.customerPath ? (
+                              <Link
+                                href={job.customerPath}
+                                onClick={(event) => event.stopPropagation()}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textDecoration: "none" }}
+                              >
+                                <UserRound size={11} />
+                                Customer record
+                              </Link>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -794,6 +1012,41 @@ export default function JobsPage() {
                       {visibleColumns.workflowDate ? (
                         <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>{formatDate(getJobWorkflowDate(job))}</td>
                       ) : null}
+                      {visibleColumns.lastContact ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          {formatDate(getLastContactDate(job))}
+                        </td>
+                      ) : null}
+                      {visibleColumns.nextFollowUp ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {getNextFollowUpDate(job) ? (
+                            <span className={`badge ${String(getNextFollowUpDate(job)) < new Date().toISOString().slice(0, 10) ? "badge-red" : "badge-blue"}`}>
+                              {formatDate(getNextFollowUpDate(job))}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>-</span>
+                          )}
+                        </td>
+                      ) : null}
+                      {visibleColumns.followUpOwner ? (
+                        <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <UserRound size={12} />
+                            {job.crmSummary?.followUpOwnerName || "-"}
+                          </div>
+                        </td>
+                      ) : null}
+                      {visibleColumns.openTasks ? (
+                        <td style={cellStyle({ whiteSpace: "nowrap" })}>
+                          {getOpenTaskCount(job) > 0 ? (
+                            <span className={`badge ${getOverdueTaskCount(job) > 0 ? "badge-red" : "badge-amber"}`}>
+                              {getOpenTaskCount(job)} open{getOverdueTaskCount(job) > 0 ? ` · ${getOverdueTaskCount(job)} overdue` : ""}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>0</span>
+                          )}
+                        </td>
+                      ) : null}
                       {visibleColumns.rep ? (
                         <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>{job.repName || "-"}</td>
                       ) : null}
@@ -802,6 +1055,28 @@ export default function JobsPage() {
                           {formatCurrency((job.financialSummary?.outstandingCents || 0) / 100)}
                         </td>
                       ) : null}
+                      <td style={cellStyle({ minWidth: 150 })} onClick={(event) => event.stopPropagation()}>
+                        {workflowAction ? (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              onClick={(event) => runBoardQuickAction(event, job, workflowAction)}
+                              disabled={updatingJobId === job.id}
+                              style={{ width: "100%", justifyContent: "center" }}
+                            >
+                              {updatingJobId === job.id ? "Saving..." : workflowAction.shortLabel}
+                            </button>
+                            <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                              {workflowAction.description}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                            {canManageOps ? "Open job for details" : "View details"}
+                          </span>
+                        )}
+                      </td>
                       <td style={cellStyle({ whiteSpace: "nowrap" })}><ChevronRight size={15} style={{ color: "var(--text-tertiary)" }} /></td>
                     </tr>
                   );

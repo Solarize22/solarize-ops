@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { emptyCrmPayload, isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
+import { customerIdentityForRow } from "@/lib/customer-crm";
 
 export async function GET(req, { params }) {
   try {
@@ -13,12 +15,14 @@ export async function GET(req, { params }) {
     if (!access) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const showFinancials = canSeeFinancials(ctx.appUser);
+    const crmInstalled = await isCrmInstalled(ctx.sql);
 
-    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows] = await Promise.all([
+    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows, contactRows, taskRows] = await Promise.all([
       ctx.sql`
         select
           j.*,
           rep.full_name as rep_name,
+          follow_up_owner.full_name as follow_up_owner_name,
           coalesce(
             json_agg(distinct crew.full_name) filter (where crew.full_name is not null),
             '[]'::json
@@ -27,11 +31,12 @@ export async function GET(req, { params }) {
           coalesce(sum(case when i.status <> 'void' then i.balance_cents else 0 end), 0)::int as outstanding_cents
         from jobs j
         left join app_users rep on rep.id = j.rep_user_id
+        left join app_users follow_up_owner on follow_up_owner.id = j.follow_up_owner_id
         left join job_crew_assignments a on a.job_id = j.id
         left join app_users crew on crew.id = a.user_id
         left join invoices i on i.job_id = j.id
         where j.id::text = ${access.id}::text
-        group by j.id, rep.full_name
+        group by j.id, rep.full_name, follow_up_owner.full_name
         limit 1
       `,
       showFinancials
@@ -95,6 +100,34 @@ export async function GET(req, { params }) {
             order by p.received_at nulls last, p.created_at asc
           `
         : Promise.resolve([]),
+      crmInstalled
+        ? ctx.sql`
+            select
+              c.*,
+              u.full_name as created_by_name
+            from job_contact_log c
+            left join app_users u on u.id = c.created_by
+            where c.job_id = ${access.id}
+            order by c.contacted_at desc, c.created_at desc
+            limit 20
+          `
+        : Promise.resolve([]),
+      crmInstalled
+        ? ctx.sql`
+            select
+              t.*,
+              owner.full_name as owner_name,
+              creator.full_name as created_by_name
+            from job_follow_up_tasks t
+            left join app_users owner on owner.id = t.owner_user_id
+            left join app_users creator on creator.id = t.created_by
+            where t.job_id = ${access.id}
+            order by
+              case when t.status = 'done' then 1 else 0 end asc,
+              t.due_at asc nulls last,
+              t.created_at desc
+          `
+        : Promise.resolve([]),
     ]);
 
     const row = jobRows[0];
@@ -102,11 +135,15 @@ export async function GET(req, { params }) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    const customerIdentity = customerIdentityForRow(row);
+
     return NextResponse.json({
       job: {
         id: row.id,
         companyId: row.company_id,
         jobNumber: row.job_number,
+        customerId: customerIdentity.customerId,
+        customerPath: customerIdentity.customerPath,
         externalJobId: row.external_job_id,
         customerName: row.customer_name,
         customerPhone: row.customer_phone,
@@ -144,6 +181,10 @@ export async function GET(req, { params }) {
         currentStatusChangedAt: row.current_status_changed_at,
         isActive: row.is_active,
         notes: row.notes,
+        lastContactAt: crmInstalled ? row.last_contact_at : null,
+        nextFollowUpAt: crmInstalled ? row.next_follow_up_at : null,
+        followUpOwnerId: crmInstalled ? row.follow_up_owner_id : null,
+        followUpOwnerName: crmInstalled ? row.follow_up_owner_name : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         financialSummary: showFinancials
@@ -210,6 +251,21 @@ export async function GET(req, { params }) {
         createdAt: payment.created_at,
         updatedAt: payment.updated_at,
       })),
+      crm: crmInstalled
+        ? {
+            installed: true,
+            summary: {
+              lastContactAt: row.last_contact_at,
+              nextFollowUpAt: row.next_follow_up_at,
+              followUpOwnerId: row.follow_up_owner_id,
+              followUpOwnerName: row.follow_up_owner_name,
+              openTaskCount: taskRows.filter((task) => task.status !== "done").length,
+              overdueTaskCount: taskRows.filter((task) => task.status !== "done" && task.due_at && String(task.due_at) < new Date().toISOString().slice(0, 10)).length,
+            },
+            contactLog: contactRows.map(mapContactLogRow),
+            tasks: taskRows.map(mapTaskRow),
+          }
+        : emptyCrmPayload(),
     });
   } catch (error) {
     return NextResponse.json({ error: error.message || "Failed to load job detail" }, { status: 500 });

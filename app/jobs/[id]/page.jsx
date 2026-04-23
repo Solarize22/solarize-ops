@@ -4,19 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import { getAllowedStatusTransitions, getWorkflowAdvanceAction } from "@/lib/job-workflow";
 import { formatCurrency, formatDate, formatDateTimeParts } from "@/lib/utils";
-import { ArrowLeft, CalendarDays, CircleDollarSign, ClipboardList, ShieldCheck, Home } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  CircleDollarSign,
+  ClipboardList,
+  Home,
+  Mail,
+  MessageSquareMore,
+  NotebookPen,
+  Phone,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
-
-const STATUS_OPTIONS = [
-  "created", "scheduled", "install_completed", "inspection_scheduled",
-  "inspection_passed", "inspection_failed", "pto_submitted", "pto_granted",
-  "m1_invoiced", "m1_partially_paid", "m1_paid", "m2_invoiced",
-  "m2_partially_paid", "paid_in_full", "on_hold", "cancelled",
-];
 
 const INVOICE_TYPES = ["M1", "M2", "ADDER", "SPECIAL"];
 const PAYMENT_METHODS = ["ACH", "WIRE", "CHECK", "CREDIT_CARD", "FINANCER", "CASH", "OTHER"];
+const CONTACT_CHANNELS = ["call", "text", "email", "voicemail", "note"];
+const CONTACT_DIRECTIONS = ["outbound", "inbound", "internal"];
+const TASK_PRIORITIES = ["high", "medium", "low"];
 
 const STATUS_META = {
   created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
@@ -51,6 +60,28 @@ function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.created;
 }
 
+function formatLabel(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function taskPriorityMeta(priority) {
+  if (priority === "high") return "badge-red";
+  if (priority === "medium") return "badge-amber";
+  return "badge-slate";
+}
+
+function taskStatusMeta(status) {
+  if (status === "done") return "badge-green";
+  if (status === "in_progress") return "badge-blue";
+  return "badge-amber";
+}
+
+function isOverdueTask(task) {
+  return task?.status !== "done" && !!task?.dueAt && String(task.dueAt) < new Date().toISOString().slice(0, 10);
+}
+
 function fieldValue(value) {
   return value || "-";
 }
@@ -58,13 +89,13 @@ function fieldValue(value) {
 function nextAction(job) {
   switch (job.currentStatus) {
     case "created": return "Schedule the job";
-    case "scheduled": return "Confirm install details";
-    case "install_completed": return "Create M1 invoice";
-    case "inspection_scheduled": return "Track inspection result";
-    case "inspection_failed": return "Resolve failure and reschedule";
-    case "inspection_passed": return "Push PTO";
+    case "scheduled": return "Mark install complete";
+    case "install_completed": return "Schedule inspection";
+    case "inspection_scheduled": return "Log inspection result";
+    case "inspection_failed": return "Reschedule inspection";
+    case "inspection_passed": return "Submit PTO";
     case "pto_submitted": return "Follow up with utility";
-    case "pto_granted": return "Create M2 invoice";
+    case "pto_granted": return "Start final billing";
     case "m1_invoiced":
     case "m1_partially_paid": return "Collect M1 payment";
     case "m1_paid": return "Move to final billing";
@@ -130,6 +161,15 @@ function EmptyState({ text }) {
   return <div style={{ padding: "12px 0", fontSize: 13, color: "var(--text-secondary)" }}>{text}</div>;
 }
 
+function MiniMetric({ label, value, strong = false }) {
+  return (
+    <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: strong ? "var(--amber-bg)" : "var(--surface-2)", border: strong ? "1px solid var(--amber)" : "1px solid var(--border)" }}>
+      <div style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700, marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{value}</div>
+    </div>
+  );
+}
+
 function FormField({ label, children, span = 1, hint = "" }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 6, gridColumn: span > 1 ? `span ${span}` : undefined }}>
@@ -153,6 +193,9 @@ function EventLabel({ item }) {
   if (item.eventType === "status_changed") return "Status updated";
   if (item.eventType === "invoice_created") return "Invoice created";
   if (item.eventType === "payment_received") return "Payment recorded";
+  if (item.eventType === "note" && item.note?.startsWith("CRM contact logged:")) return "CRM contact logged";
+  if (item.eventType === "note" && item.note?.startsWith("CRM follow-up task")) return "Follow-up task updated";
+  if (item.eventType === "note" && item.note === "Updated CRM follow-up details") return "CRM details updated";
   if (item.eventType === "note") return "Project record updated";
   return item.eventType?.replace(/_/g, " ") || "Activity";
 }
@@ -160,22 +203,30 @@ function EventLabel({ item }) {
 export default function JobDetailPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { isOwner, isAdmin, loading: roleLoading } = useUserRole();
+  const { isOwner, isAdmin, loading: roleLoading, role } = useUserRole();
   const [job, setJob] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [inspections, setInspections] = useState([]);
   const [history, setHistory] = useState([]);
+  const [crm, setCrm] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingJob, setEditingJob] = useState(false);
   const [jobForm, setJobForm] = useState(null);
+  const [crmForm, setCrmForm] = useState({ lastContactAt: "", nextFollowUpAt: "", followUpOwnerId: "" });
+  const [contactForm, setContactForm] = useState({ channel: "call", direction: "outbound", summary: "", details: "", contactedAt: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", details: "", priority: "high", dueAt: "", ownerUserId: "" });
   const [statusForm, setStatusForm] = useState({ toStatus: "scheduled", effectiveDate: "", note: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
+  const [paymentForm, setPaymentForm] = useState({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
   const [message, setMessage] = useState({ type: "", text: "" });
   const billingRef = useRef(null);
   const statusRef = useRef(null);
-  const canManageOps = isOwner || isAdmin;
+  const crmRef = useRef(null);
+  const canManageOps = isOwner || isAdmin || role === "ops";
 
   useEffect(() => {
     let cancelled = false;
@@ -183,8 +234,12 @@ export default function JobDetailPage() {
       setLoading(true);
       setError("");
       try {
-        const detailRes = await fetch(`/api/v2/jobs/${id}/full`);
+        const [detailRes, teamRes] = await Promise.all([
+          fetch(`/api/v2/jobs/${id}/full`),
+          fetch("/api/v2/team"),
+        ]);
         const detailData = await detailRes.json().catch(() => ({}));
+        const teamData = teamRes.ok ? await teamRes.json().catch(() => []) : [];
         if (!detailRes.ok) throw new Error(detailData.error || "Failed to load job");
         if (cancelled) return;
         setJob(detailData.job || null);
@@ -192,6 +247,8 @@ export default function JobDetailPage() {
         setInspections(Array.isArray(detailData.inspections) ? detailData.inspections : []);
         setHistory(Array.isArray(detailData.history) ? detailData.history : []);
         setPayments(Array.isArray(detailData.payments) ? detailData.payments : []);
+        setCrm(detailData.crm || null);
+        setTeamMembers(Array.isArray(teamData) ? teamData : []);
       } catch (err) {
         if (!cancelled) setError(err.message || "Failed to load job");
       } finally {
@@ -204,7 +261,13 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     if (!job) return;
-    setStatusForm((prev) => ({ ...prev, toStatus: job.currentStatus || "scheduled" }));
+    const allowedTransitions = getAllowedStatusTransitions(job.currentStatus);
+    setStatusForm((prev) => ({
+      ...prev,
+      toStatus: allowedTransitions.includes(prev.toStatus)
+        ? prev.toStatus
+        : allowedTransitions[0] || job.currentStatus || "scheduled",
+    }));
     setJobForm({
       customerName: job.customerName || "",
       customerPhone: job.customerPhone || "",
@@ -239,6 +302,29 @@ export default function JobDetailPage() {
     });
   }, [job]);
 
+  useEffect(() => {
+    if (!job || !crm) return;
+    setCrmForm({
+      lastContactAt: crm.summary?.lastContactAt ? String(crm.summary.lastContactAt).slice(0, 16) : "",
+      nextFollowUpAt: crm.summary?.nextFollowUpAt || "",
+      followUpOwnerId: crm.summary?.followUpOwnerId || "",
+    });
+    setContactForm((prev) => ({
+      ...prev,
+      contactedAt: prev.contactedAt || new Date().toISOString().slice(0, 16),
+    }));
+    setTaskForm((prev) => ({
+      ...prev,
+      ownerUserId: prev.ownerUserId || crm.summary?.followUpOwnerId || job?.repUserId || "",
+    }));
+  }, [crm, job]);
+
+  useEffect(() => {
+    if (!paymentForm.invoiceId && invoices.length > 0) {
+      const openInvoice = invoices.find((invoice) => (invoice.balanceCents || 0) > 0);
+    if (openInvoice) setPaymentForm((prev) => ({ ...prev, invoiceId: openInvoice.id }));
+    }
+  }, [invoices, paymentForm.invoiceId]);
 
   const invoiceSummary = useMemo(() => {
     const total = invoices.reduce((sum, item) => sum + (item.totalCents || 0), 0);
@@ -247,34 +333,38 @@ export default function JobDetailPage() {
   }, [invoices]);
 
   const highlightedInvoice = useMemo(() => invoices.find((invoice) => (invoice.balanceCents || 0) > 0) || invoices[0] || null, [invoices]);
+  const contactLog = useMemo(() => crm?.contactLog || [], [crm]);
+  const followUpTasks = useMemo(() => crm?.tasks || [], [crm]);
+  const openTasks = useMemo(() => followUpTasks.filter((task) => task.status !== "done"), [followUpTasks]);
+  const overdueTasks = useMemo(() => openTasks.filter((task) => isOverdueTask(task)), [openTasks]);
+  const crmInstalled = crm?.installed !== false;
+  const availableStatusOptions = useMemo(() => getAllowedStatusTransitions(job?.currentStatus), [job?.currentStatus]);
 
   const quickActions = useMemo(() => {
     if (!job) return [];
     const today = new Date().toISOString().slice(0, 10);
     const actions = [];
+    const workflowAction = canManageOps ? getWorkflowAdvanceAction(job, "Job detail") : null;
 
-    if (canManageOps && job.currentStatus === "created") {
-      actions.push({ label: "Mark scheduled", kind: "status", toStatus: "scheduled", note: "Scheduled from command center", date: today });
-    }
-    if (canManageOps && job.currentStatus === "scheduled") {
-      actions.push({ label: "Mark install complete", kind: "status", toStatus: "install_completed", note: "Install completed from command center", date: today });
+    if (workflowAction) {
+      actions.push({
+        label: workflowAction.label,
+        kind: "status",
+        toStatus: workflowAction.toStatus,
+        note: workflowAction.note,
+        date: workflowAction.effectiveDate,
+      });
     }
     if (isOwner && ["install_completed", "inspection_scheduled", "inspection_passed"].includes(job.currentStatus)) {
       actions.push({ label: "Prepare M1 invoice", kind: "invoice", invoiceType: "M1" });
     }
-    if (canManageOps && job.currentStatus === "install_completed") {
-      actions.push({ label: "Mark inspection scheduled", kind: "status", toStatus: "inspection_scheduled", note: "Inspection scheduled from command center", date: today });
-    }
-    if (canManageOps && ["inspection_scheduled", "inspection_failed"].includes(job.currentStatus)) {
-      actions.push({ label: "Mark inspection passed", kind: "status", toStatus: "inspection_passed", note: "Inspection passed from command center", date: today });
-    }
-    if (canManageOps && ["inspection_passed", "pto_submitted"].includes(job.currentStatus)) {
-      actions.push({ label: "Grant PTO", kind: "status", toStatus: "pto_granted", note: "PTO granted from command center", date: today });
-    }
     if (isOwner && ["pto_granted", "m1_paid"].includes(job.currentStatus)) {
       actions.push({ label: "Prepare M2 invoice", kind: "invoice", invoiceType: "M2" });
     }
-    if (canManageOps && ["inspection_failed", "on_hold"].includes(job.currentStatus)) {
+    if (isOwner && invoices.some((invoice) => (invoice.balanceCents || 0) > 0)) {
+      actions.push({ label: "Record payment", kind: "payment" });
+    }
+    if (canManageOps && !["on_hold", "cancelled", "paid_in_full"].includes(job.currentStatus)) {
       actions.push({ label: "Move to on hold", kind: "status", toStatus: "on_hold", note: "Job placed on hold from command center", date: today });
     }
 
@@ -299,6 +389,44 @@ export default function JobDetailPage() {
     }
   }
 
+  async function handleInvoiceSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(invoiceForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to create invoice");
+      setInvoiceForm({ invoiceType: "M1", invoiceNumber: "", amount: "", issuedAt: "", dueAt: "", description: "", memo: "" });
+      setMessage({ type: "success", text: "Invoice created." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to create invoice" });
+    }
+  }
+
+  async function handlePaymentSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch("/api/v2/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paymentForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to record payment");
+      setPaymentForm({ invoiceId: "", amount: "", paymentMethod: "ACH", receivedAt: "", paymentReference: "", notes: "" });
+      setMessage({ type: "success", text: "Payment recorded." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to record payment" });
+    }
+  }
+
 
   async function handleJobSave(e) {
     e.preventDefault();
@@ -316,6 +444,98 @@ export default function JobDetailPage() {
       setRefreshKey((v) => v + 1);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Failed to save job" });
+    }
+  }
+
+  async function handleCrmSave(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/crm`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...crmForm,
+          lastContactAt: crmForm.lastContactAt ? new Date(crmForm.lastContactAt).toISOString() : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update follow-up details");
+      setMessage({ type: "success", text: "CRM follow-up details updated." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to update follow-up details" });
+    }
+  }
+
+  async function handleContactSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/crm/contact-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...contactForm,
+          contactedAt: contactForm.contactedAt ? new Date(contactForm.contactedAt).toISOString() : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save communication log");
+      setContactForm({ channel: "call", direction: "outbound", summary: "", details: "", contactedAt: new Date().toISOString().slice(0, 16) });
+      setMessage({ type: "success", text: "Communication log added." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to save communication log" });
+    }
+  }
+
+  async function handleTaskSubmit(e) {
+    e.preventDefault();
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/crm/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(taskForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to create follow-up task");
+      setTaskForm({
+        title: "",
+        details: "",
+        priority: "high",
+        dueAt: "",
+        ownerUserId: crm?.summary?.followUpOwnerId || job?.repUserId || "",
+      });
+      setMessage({ type: "success", text: "Follow-up task created." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to create follow-up task" });
+    }
+  }
+
+  async function updateTask(task, updates) {
+    setMessage({ type: "", text: "" });
+    try {
+      const res = await fetch(`/api/v2/jobs/${id}/crm/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: task.title,
+          details: task.details,
+          priority: task.priority,
+          dueAt: task.dueAt,
+          ownerUserId: task.ownerUserId || "",
+          ...updates,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update follow-up task");
+      setMessage({ type: "success", text: "Follow-up task updated." });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || "Failed to update follow-up task" });
     }
   }
 
@@ -361,6 +581,7 @@ export default function JobDetailPage() {
 
   const status = statusMeta(job.currentStatus);
   const timelineIndex = Math.max(0, TIMELINE.findIndex((item) => item.key === job.currentStatus));
+  const ownerOptions = teamMembers.filter((member) => member.isActive);
 
   return (
     <AppShell>
@@ -376,6 +597,15 @@ export default function JobDetailPage() {
                 <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em", margin: 0 }}>{job.customerName}</h1>
                 <span className="mono badge badge-slate">{job.jobNumber}</span>
                 <span style={{ padding: "5px 10px", borderRadius: 999, background: status.bg, color: status.color, fontSize: 12, fontWeight: 800 }}>{status.label}</span>
+                {job.customerPath ? (
+                  <Link
+                    href={job.customerPath}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, background: "var(--surface-2)", color: "var(--text-primary)", fontSize: 12, fontWeight: 700, textDecoration: "none", border: "1px solid var(--border)" }}
+                  >
+                    <UserRound size={12} />
+                    Customer record
+                  </Link>
+                ) : null}
               </div>
               <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
                 {[job.address?.street1, job.address?.city, job.address?.state, job.address?.postalCode].filter(Boolean).join(", ")}
@@ -384,7 +614,7 @@ export default function JobDetailPage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(120px, 1fr))", gap: 10, minWidth: 360 }}>
               <MilestoneCard label="Current stage" value={status.label} strong />
-              <MilestoneCard label="Next date" value={<DateTimeStack value={operationalDate(job)} />} />
+              <MilestoneCard label={crm?.summary?.nextFollowUpAt ? "Next follow-up" : "Next date"} value={<DateTimeStack value={crm?.summary?.nextFollowUpAt || operationalDate(job)} />} />
               <MilestoneCard label="Outstanding" value={isOwner ? formatCurrency((job.financialSummary?.outstandingCents || 0) / 100) : "Hidden"} />
             </div>
           </div>
@@ -671,6 +901,189 @@ export default function JobDetailPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div ref={crmRef}>
+            <ActionPanel title="CRM workspace" icon={MessageSquareMore}>
+              {!crmInstalled ? (
+                <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
+                  Apply `db/migrations/003_job_crm_workspace.sql` to enable contact logs, follow-up owner, and task tracking for this job.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 14 }}>
+                    <MiniMetric label="Last contact" value={crm?.summary?.lastContactAt ? <DateTimeStack value={crm.summary.lastContactAt} /> : "Not logged"} />
+                    <MiniMetric label="Next follow-up" value={crm?.summary?.nextFollowUpAt ? formatDate(crm.summary.nextFollowUpAt) : "Not set"} strong />
+                    <MiniMetric label="Owner" value={crm?.summary?.followUpOwnerName || "Unassigned"} />
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                    {job.customerPhone ? (
+                      <a className="btn btn-outline" href={`tel:${job.customerPhone}`}>
+                        <Phone size={13} />
+                        Call homeowner
+                      </a>
+                    ) : null}
+                    {job.customerEmail ? (
+                      <a className="btn btn-outline" href={`mailto:${job.customerEmail}`}>
+                        <Mail size={13} />
+                        Email homeowner
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setContactForm((prev) => ({ ...prev, summary: prev.summary || "Quick homeowner update" }))}
+                    >
+                      <NotebookPen size={13} />
+                      Prep log
+                    </button>
+                  </div>
+
+                  {canManageOps ? (
+                    <form onSubmit={handleCrmSave} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 14 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 10 }}>Follow-up settings</div>
+                      <div style={{ display: "grid", gap: 10 }}>
+                        <FormField label="Last contact">
+                          <input type="datetime-local" value={crmForm.lastContactAt} onChange={(e) => setCrmForm((prev) => ({ ...prev, lastContactAt: e.target.value }))} />
+                        </FormField>
+                        <FormField label="Next follow-up">
+                          <input type="date" value={crmForm.nextFollowUpAt} onChange={(e) => setCrmForm((prev) => ({ ...prev, nextFollowUpAt: e.target.value }))} />
+                        </FormField>
+                        <FormField label="Follow-up owner">
+                          <select value={crmForm.followUpOwnerId} onChange={(e) => setCrmForm((prev) => ({ ...prev, followUpOwnerId: e.target.value }))}>
+                            <option value="">Unassigned</option>
+                            {ownerOptions.map((member) => (
+                              <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
+                            ))}
+                          </select>
+                        </FormField>
+                        <button className="btn btn-primary" type="submit">Save CRM details</button>
+                      </div>
+                    </form>
+                  ) : null}
+
+                  <div style={{ marginBottom: 14 }}>
+                    <SectionHeading title="Communication log" description="Calls, emails, texts, and internal follow-up notes stay attached to the job." />
+                    {canManageOps ? (
+                      <form onSubmit={handleContactSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <select value={contactForm.channel} onChange={(e) => setContactForm((prev) => ({ ...prev, channel: e.target.value }))}>
+                              {CONTACT_CHANNELS.map((channel) => <option key={channel} value={channel}>{formatLabel(channel)}</option>)}
+                            </select>
+                            <select value={contactForm.direction} onChange={(e) => setContactForm((prev) => ({ ...prev, direction: e.target.value }))}>
+                              {CONTACT_DIRECTIONS.map((direction) => <option key={direction} value={direction}>{formatLabel(direction)}</option>)}
+                            </select>
+                          </div>
+                          <input value={contactForm.summary} onChange={(e) => setContactForm((prev) => ({ ...prev, summary: e.target.value }))} placeholder="Summary of what happened" />
+                          <textarea rows={3} value={contactForm.details} onChange={(e) => setContactForm((prev) => ({ ...prev, details: e.target.value }))} placeholder="More context, promise made, next commitment..." style={{ resize: "vertical" }} />
+                          <input type="datetime-local" value={contactForm.contactedAt} onChange={(e) => setContactForm((prev) => ({ ...prev, contactedAt: e.target.value }))} />
+                          <button className="btn btn-outline" type="submit">Add communication log</button>
+                        </div>
+                      </form>
+                    ) : null}
+
+                    {contactLog.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {contactLog.slice(0, 6).map((entry) => (
+                          <div key={entry.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "12px 14px", background: "var(--surface-2)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span className={`badge ${entry.direction === "internal" ? "badge-slate" : "badge-blue"}`}>{formatLabel(entry.channel)}</span>
+                                <span className={`badge ${entry.direction === "outbound" ? "badge-amber" : entry.direction === "inbound" ? "badge-green" : "badge-slate"}`}>{formatLabel(entry.direction)}</span>
+                                <div style={{ fontWeight: 700 }}>{entry.summary}</div>
+                              </div>
+                              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                                <DateTimeStack value={entry.contactedAt} align="right" />
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                              {entry.details || "No extra details logged."}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
+                              Logged by {entry.createdByName || "Unknown user"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <EmptyState text="No communication has been logged on this job yet." />}
+                  </div>
+
+                  <div>
+                    <SectionHeading title="Follow-up tasks" description="Small, explicit next steps so nothing lives only in someone's head." />
+                    {canManageOps ? (
+                      <form onSubmit={handleTaskSubmit} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14, marginBottom: 12 }}>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <input value={taskForm.title} onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Create a follow-up task" />
+                          <textarea rows={3} value={taskForm.details} onChange={(e) => setTaskForm((prev) => ({ ...prev, details: e.target.value }))} placeholder="What exactly needs to happen?" style={{ resize: "vertical" }} />
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <select value={taskForm.priority} onChange={(e) => setTaskForm((prev) => ({ ...prev, priority: e.target.value }))}>
+                              {TASK_PRIORITIES.map((priority) => <option key={priority} value={priority}>{formatLabel(priority)}</option>)}
+                            </select>
+                            <input type="date" value={taskForm.dueAt} onChange={(e) => setTaskForm((prev) => ({ ...prev, dueAt: e.target.value }))} />
+                          </div>
+                          <select value={taskForm.ownerUserId} onChange={(e) => setTaskForm((prev) => ({ ...prev, ownerUserId: e.target.value }))}>
+                            <option value="">No owner yet</option>
+                            {ownerOptions.map((member) => (
+                              <option key={member.id} value={member.id}>{member.name} · {formatLabel(member.role)}</option>
+                            ))}
+                          </select>
+                          <button className="btn btn-outline" type="submit">Create task</button>
+                        </div>
+                      </form>
+                    ) : null}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                      <MiniMetric label="Open tasks" value={openTasks.length} />
+                      <MiniMetric label="Overdue" value={overdueTasks.length} strong={overdueTasks.length > 0} />
+                    </div>
+
+                    {followUpTasks.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {followUpTasks.map((task) => (
+                          <div key={task.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "12px 14px", background: task.status === "done" ? "var(--surface)" : isOverdueTask(task) ? "#fff4f1" : "var(--surface-2)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 6 }}>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                                  <div style={{ fontWeight: 700, textDecoration: task.status === "done" ? "line-through" : "none" }}>{task.title}</div>
+                                  <span className={`badge ${taskPriorityMeta(task.priority)}`}>{formatLabel(task.priority)}</span>
+                                  <span className={`badge ${taskStatusMeta(task.status)}`}>{formatLabel(task.status)}</span>
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                                  {task.details || "No extra details on this task."}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>
+                                <div style={{ fontWeight: 700, color: isOverdueTask(task) ? "#991b1b" : "var(--text-primary)" }}>{task.dueAt ? formatDate(task.dueAt) : "No due date"}</div>
+                                <div>{task.ownerName || "Unassigned"}</div>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                                Created by {task.createdByName || "Unknown user"}{task.completedAt ? ` · Completed ${formatDate(task.completedAt)}` : ""}
+                              </div>
+                              {canManageOps ? (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                  {task.status !== "done" ? (
+                                    <button type="button" className="btn btn-ghost" onClick={() => updateTask(task, { status: task.status === "open" ? "in_progress" : "done" })}>
+                                      {task.status === "open" ? "Start task" : "Mark done"}
+                                    </button>
+                                  ) : (
+                                    <button type="button" className="btn btn-ghost" onClick={() => updateTask(task, { status: "open" })}>
+                                      Reopen
+                                    </button>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <EmptyState text="No follow-up tasks yet." />}
+                  </div>
+                </>
+              )}
+            </ActionPanel>
+          </div>
           <ActionPanel title="Immediate actions" icon={ShieldCheck}>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>This panel should answer one question clearly: what should happen next on this job?</div>
             <div style={{ display: "grid", gap: 10 }}>
@@ -704,11 +1117,26 @@ export default function JobDetailPage() {
           {canManageOps ? (
             <div ref={statusRef}>
             <ActionPanel title="Status control" icon={CalendarDays}>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
+                {availableStatusOptions.length > 0
+                  ? `Allowed next stages from ${status.label}: ${availableStatusOptions.map((item) => formatLabel(item)).join(", ")}.`
+                  : "This job is in a terminal stage. Reopen it from an earlier workflow state only if the record needs correction."}
+              </div>
               <form onSubmit={handleStatusSubmit} style={{ display: "grid", gap: 10 }}>
-                <select value={statusForm.toStatus} onChange={(e) => setStatusForm((prev) => ({ ...prev, toStatus: e.target.value }))}>{STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-                <input type="date" value={statusForm.effectiveDate} onChange={(e) => setStatusForm((prev) => ({ ...prev, effectiveDate: e.target.value }))} />
-                <input value={statusForm.note} onChange={(e) => setStatusForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="Transition note" />
-                <button className="btn btn-primary" type="submit">Update status</button>
+                <select
+                  value={statusForm.toStatus}
+                  onChange={(e) => setStatusForm((prev) => ({ ...prev, toStatus: e.target.value }))}
+                  disabled={availableStatusOptions.length === 0}
+                >
+                  {availableStatusOptions.length > 0 ? (
+                    availableStatusOptions.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)
+                  ) : (
+                    <option value={job.currentStatus}>{formatLabel(job.currentStatus)}</option>
+                  )}
+                </select>
+                <input type="date" value={statusForm.effectiveDate} onChange={(e) => setStatusForm((prev) => ({ ...prev, effectiveDate: e.target.value }))} disabled={availableStatusOptions.length === 0} />
+                <input value={statusForm.note} onChange={(e) => setStatusForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="Transition note" disabled={availableStatusOptions.length === 0} />
+                <button className="btn btn-primary" type="submit" disabled={availableStatusOptions.length === 0}>Update status</button>
               </form>
             </ActionPanel>
             </div>
