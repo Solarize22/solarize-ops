@@ -454,13 +454,13 @@ export default function DashboardPage() {
       setLoading(true);
       try {
         const requests = [
-          fetch("/api/v2/jobs"),
-          fetch("/api/v2/service"),
-          fetch("/api/v2/schedule"),
+          fetch(`/api/v2/jobs?_=${Date.now()}`, { cache: "no-store" }),
+          fetch(`/api/v2/service?_=${Date.now()}`, { cache: "no-store" }),
+          fetch(`/api/v2/schedule?_=${Date.now()}`, { cache: "no-store" }),
         ];
 
         if (canSeeFinancials) {
-          requests.push(fetch("/api/v2/reports"));
+          requests.push(fetch(`/api/v2/reports?_=${Date.now()}`, { cache: "no-store" }));
         }
 
         const responses = await Promise.all(requests);

@@ -58,7 +58,7 @@ export default function CustomersPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/v2/customers")
+    fetch(`/api/v2/customers?_=${Date.now()}`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : []))
       .then((data) => setCustomers(Array.isArray(data) ? data : []))
       .catch(() => setCustomers([]))

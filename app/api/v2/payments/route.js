@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canRecordPayments, getRequestContext } from "@/lib/normalized-api";
+import { syncWorkflowFollowUpTask } from "@/lib/job-automation";
 
 export async function POST(req) {
   const ctx = await getRequestContext();
@@ -150,6 +151,14 @@ export async function POST(req) {
         ${`Recorded payment for ${invoice.invoice_number}`}
       )
     `;
+
+    if (jobStatus) {
+      await syncWorkflowFollowUpTask(ctx.sql, invoice.job_id, jobStatus, {
+        changedBy: ctx.appUser?.id || null,
+        effectiveDate: receivedAt,
+        invoiceDueAt: invoice.due_at,
+      });
+    }
 
     await ctx.sql`commit`;
     return NextResponse.json(payments[0], { status: 201 });

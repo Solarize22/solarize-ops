@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
 import { syncCustomerForJob } from "@/lib/customer-crm";
+import { promoteStatusFromMilestones } from "@/lib/job-workflow";
 
 export async function GET(req, { params }) {
   try {
@@ -175,8 +176,9 @@ function normalizePayload(body) {
 }
 
 export async function PATCH(req, { params }) {
+  let ctx;
   try {
-    const ctx = await getRequestContext();
+    ctx = await getRequestContext();
     if (!ctx.authenticated) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -190,7 +192,9 @@ export async function PATCH(req, { params }) {
 
     const body = await req.json();
     const payload = normalizePayload(body);
+    const promotedStatus = promoteStatusFromMilestones(access.current_status, payload);
 
+    await ctx.sql`begin`;
     const rows = await ctx.sql`
       update jobs
       set
@@ -221,6 +225,11 @@ export async function PATCH(req, { params }) {
         install_completed_at = ${payload.installCompletedAt ?? null}::date,
         pto_submitted_at = ${payload.ptoSubmittedAt ?? null}::date,
         pto_granted_at = ${payload.ptoGrantedAt ?? null}::date,
+        current_status = ${promotedStatus || access.current_status}::job_status,
+        current_status_changed_at = case
+          when ${promotedStatus ? true : false} then now()
+          else current_status_changed_at
+        end,
         notes = ${payload.notes ?? null},
         updated_at = now()
       where id = ${access.id}
@@ -228,6 +237,29 @@ export async function PATCH(req, { params }) {
     `;
 
     await syncCustomerForJob(ctx.sql, access.company_id, access.id, rows[0]);
+
+    if (promotedStatus) {
+      await ctx.sql`
+        insert into job_status_history (
+          job_id,
+          from_status,
+          to_status,
+          event_type,
+          changed_at,
+          changed_by,
+          note
+        )
+        values (
+          ${access.id},
+          ${access.current_status}::job_status,
+          ${promotedStatus}::job_status,
+          'status_changed'::status_event_type,
+          now(),
+          ${ctx.appUser?.id || null},
+          'Promoted status from milestone dates'
+        )
+      `;
+    }
 
     await ctx.sql`
       insert into job_status_history (
@@ -250,8 +282,11 @@ export async function PATCH(req, { params }) {
       )
     `;
 
+    await ctx.sql`commit`;
+
     return NextResponse.json(rows[0]);
   } catch (error) {
+    try { await ctx.sql`rollback`; } catch {}
     return NextResponse.json({ error: error.message || "Failed to update job" }, { status: 500 });
   }
 }

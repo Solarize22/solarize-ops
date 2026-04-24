@@ -3,6 +3,8 @@ import { canManageJobOperations, canSeeFinancials, findCompanyUserById, getNorma
 import { isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
 import { chooseEarlierDate, chooseLaterDate, findCustomerRowsById, pickPrimaryCustomerJob } from "@/lib/customer-crm";
 
+export const dynamic = "force-dynamic";
+
 const CRM_ASSIGNABLE_ROLES = ["owner", "admin", "ops"];
 
 function normalizeText(value) {

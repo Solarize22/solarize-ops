@@ -125,8 +125,8 @@ export default function CustomerDetailPage() {
       setError("");
       try {
         const [detailRes, teamRes] = await Promise.all([
-          fetch(`/api/v2/customers/${id}`),
-          fetch("/api/v2/team"),
+          fetch(`/api/v2/customers/${id}?_=${Date.now()}`, { cache: "no-store" }),
+          fetch(`/api/v2/team?_=${Date.now()}`, { cache: "no-store" }),
         ]);
         const payload = await detailRes.json().catch(() => ({}));
         const teamPayload = teamRes.ok ? await teamRes.json().catch(() => []) : [];

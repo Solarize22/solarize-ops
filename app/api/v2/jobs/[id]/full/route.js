@@ -3,6 +3,14 @@ import { canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/no
 import { emptyCrmPayload, isCrmInstalled, mapContactLogRow, mapTaskRow } from "@/lib/job-crm";
 import { customerIdentityForRow } from "@/lib/customer-crm";
 import { isFieldTrackingInstalled, mapFieldVisitRow } from "@/lib/field-tracking";
+import {
+  getGoogleCalendarConnection,
+  isGoogleCalendarInstalled,
+  mapGoogleConnection,
+  mapGoogleEventLink,
+} from "@/lib/google-calendar";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req, { params }) {
   try {
@@ -18,8 +26,9 @@ export async function GET(req, { params }) {
     const showFinancials = canSeeFinancials(ctx.appUser);
     const crmInstalled = await isCrmInstalled(ctx.sql);
     const fieldTrackingInstalled = await isFieldTrackingInstalled(ctx.sql);
+    const googleCalendarInstalled = await isGoogleCalendarInstalled(ctx.sql);
 
-    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows, contactRows, taskRows, fieldVisitRows] = await Promise.all([
+    const [jobRows, invoiceRows, inspectionRows, historyRows, paymentRows, contactRows, taskRows, fieldVisitRows, googleConnection, googleEventRows] = await Promise.all([
       ctx.sql`
         select
           j.*,
@@ -144,6 +153,18 @@ export async function GET(req, { params }) {
               case when v.visit_type = 'install_day' then 0 else 1 end asc,
               v.visit_date desc,
               v.created_at desc
+          `
+        : Promise.resolve([]),
+      googleCalendarInstalled
+        ? getGoogleCalendarConnection(ctx.sql, access.company_id)
+        : Promise.resolve(null),
+      googleCalendarInstalled
+        ? ctx.sql`
+            select *
+            from google_calendar_event_links
+            where company_id = ${access.company_id}
+              and job_id = ${access.id}
+            order by last_synced_at desc, created_at desc
           `
         : Promise.resolve([]),
     ]);
@@ -286,6 +307,12 @@ export async function GET(req, { params }) {
             tasks: taskRows.map(mapTaskRow),
           }
         : emptyCrmPayload(),
+      googleCalendar: {
+        installed: googleCalendarInstalled,
+        connected: !!googleConnection,
+        connection: mapGoogleConnection(googleConnection),
+        events: googleEventRows.map(mapGoogleEventLink),
+      },
     });
   } catch (error) {
     return NextResponse.json({ error: error.message || "Failed to load job detail" }, { status: 500 });

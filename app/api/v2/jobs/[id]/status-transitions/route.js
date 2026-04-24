@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
 import { canTransitionStatus, getAllowedStatusTransitions, getMilestoneUpdates, JOB_STATUS_OPTIONS } from "@/lib/job-workflow";
+import { syncWorkflowFollowUpTask } from "@/lib/job-automation";
 
 const VALID_STATUSES = new Set(JOB_STATUS_OPTIONS);
 
@@ -79,6 +80,12 @@ export async function POST(req, { params }) {
         ${note}
       )
     `;
+
+    await syncWorkflowFollowUpTask(ctx.sql, access.id, nextStatus, {
+      changedBy: ctx.appUser?.id || null,
+      effectiveDate,
+      ...milestone,
+    });
     await ctx.sql`commit`;
 
     return NextResponse.json(rows[0]);

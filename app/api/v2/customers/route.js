@@ -3,6 +3,8 @@ import { canSeeFinancials, getNormalizedCompany, getRequestContext } from "@/lib
 import { isCrmInstalled } from "@/lib/job-crm";
 import { chooseEarlierDate, chooseLaterDate, customerIdForRow } from "@/lib/customer-crm";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const ctx = await getRequestContext();

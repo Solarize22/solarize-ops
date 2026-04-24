@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:reset": "powershell.exe -ExecutionPolicy Bypass -File scripts/reset-next-dev.ps1",
+    "preview:reset": "powershell.exe -ExecutionPolicy Bypass -File scripts/reset-next-preview.ps1",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "repair:workflow-milestones": "node scripts/repair-workflow-milestones.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.39.0",
