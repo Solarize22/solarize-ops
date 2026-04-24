@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, LogOut, Monitor, Moon, Palette, RefreshCw, Sun, Unplug } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 import AppShell from "@/components/AppShell";
+import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { useTheme } from "@/lib/theme";
 import { useUserRole } from "@/lib/useUserRole";
 
@@ -212,9 +213,63 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <div className="page-header">
-        <h1>Settings</h1>
-        <p>Adjust your workspace and manage company integrations without changing day-to-day CRM records by accident.</p>
+      <WorkspaceHeader
+        eyebrow="Workspace"
+        title="Settings and shared controls"
+        description="Adjust how the workspace feels, keep account actions easy to find, and manage shared integrations without accidentally touching live CRM records."
+        aside={(
+          <div
+            className="card"
+            style={{
+              padding: "16px 18px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(245,248,251,0.96) 100%)",
+            }}
+          >
+            <div className="panel-kicker">Workspace status</div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>
+              {user?.name || user?.email || "Signed in"}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Role: <span style={{ textTransform: "capitalize" }}>{role}</span> · Theme: <span style={{ textTransform: "capitalize" }}>{resolvedTheme}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              {calendarState.connected
+                ? `Google Calendar connected${calendarState.connection?.connectedEmail ? ` as ${calendarState.connection.connectedEmail}` : ""}.`
+                : "Google Calendar is not connected yet."}
+            </div>
+          </div>
+        )}
+      >
+        <span className="hero-chip">
+          {calendarState.loading ? "Loading calendar..." : calendarState.connected ? "Calendar connected" : "Calendar not connected"}
+        </span>
+        <span className="hero-chip">
+          {calendarState.loading ? "Checking config..." : calendarState.configReady ? "OAuth ready" : "OAuth setup needed"}
+        </span>
+        <span className="hero-chip">
+          {theme === "system" ? "Following system theme" : `${resolvedTheme} workspace`}
+        </span>
+      </WorkspaceHeader>
+
+      <div className="soft-stat-grid" style={{ marginBottom: 20 }}>
+        <div className="soft-stat">
+          <div className="soft-stat-label">Account role</div>
+          <div className="soft-stat-value" style={{ fontSize: 22, textTransform: "capitalize" }}>{role}</div>
+          <div className="soft-stat-detail">Permissions shape which tools and financial views you can access.</div>
+        </div>
+        <div className="soft-stat">
+          <div className="soft-stat-label">Theme mode</div>
+          <div className="soft-stat-value" style={{ fontSize: 22, textTransform: "capitalize" }}>{resolvedTheme}</div>
+          <div className="soft-stat-detail">{theme === "system" ? "Your device setting is currently driving the theme." : "Theme choice is saved for your workspace."}</div>
+        </div>
+        <div className="soft-stat">
+          <div className="soft-stat-label">Calendar sync</div>
+          <div className="soft-stat-value" style={{ fontSize: 22 }}>{calendarState.connected ? calendarState.linkedEventCount : 0}</div>
+          <div className="soft-stat-detail">{calendarState.connected ? "CRM events currently linked to Google Calendar." : "No shared calendar connection is active yet."}</div>
+        </div>
       </div>
 
       <div className="settings-grid">

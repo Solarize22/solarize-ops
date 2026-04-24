@@ -4,8 +4,8 @@ import { UserRoleProvider } from "@/lib/useUserRole";
 import { ThemeProvider } from "@/lib/theme";
 
 export const metadata = {
-  title: "Solarize Home Energy",
-  description: "Solar operations dashboard",
+  title: "Solarize Operations",
+  description: "Solar CRM, scheduling, and workflow command center",
   icons: {
     icon: "/logo-2026.png",
     apple: "/logo-2026.png",
