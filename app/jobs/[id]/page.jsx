@@ -21,6 +21,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
+import { EditableField } from "@/components/EditableField";
+import { isFieldEditable } from "@/components/JobEditGuard";
 
 const INVOICE_TYPES = ["M1", "M2", "ADDER", "SPECIAL"];
 const PAYMENT_METHODS = ["ACH", "WIRE", "CHECK", "CREDIT_CARD", "FINANCER", "CASH", "OTHER"];
@@ -729,6 +731,27 @@ export default function JobDetailPage() {
     }
   }
 
+  async function handleFieldSave(fieldName, value) {
+    setMessage({ type: "", text: "" });
+    try {
+      const payload = {};
+      payload[fieldName] = value || null;
+
+      const res = await fetch(`/api/v2/jobs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed to update ${fieldName}`);
+      setMessage({ type: "success", text: `${fieldName} updated.` });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || `Failed to update ${fieldName}` });
+      throw err;
+    }
+  }
+
   async function handleCrmSave(e) {
     e.preventDefault();
     setMessage({ type: "", text: "" });
@@ -1064,9 +1087,23 @@ export default function JobDetailPage() {
                   ]} />
                 </div>
 
-                <div style={{ marginTop: 16, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Internal notes</div>
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{job.notes || "No notes yet."}</div>
+                <div style={{ marginTop: 16 }}>
+                  {canManageOps ? (
+                    <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
+                      <EditableField
+                        label="Internal notes"
+                        value={job.notes}
+                        fieldName="notes"
+                        type="textarea"
+                        onSave={(value) => handleFieldSave("notes", value || null)}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Internal notes</div>
+                      <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{job.notes || "No notes yet."}</div>
+                    </div>
+                  )}
                 </div>
 
                 {canManageOps ? <div style={{ marginTop: 12 }}><button className="btn btn-outline" onClick={() => setEditingJob(true)}>Edit job details</button></div> : null}
@@ -1096,6 +1133,19 @@ export default function JobDetailPage() {
               { label: "Crew", value: fieldValue(job.crewNames?.join(", ")) },
               { label: "Next action", value: nextAction(job) },
             ]} />
+
+            {canManageOps && isFieldEditable("installCompletedAt") ? (
+              <div style={{ marginTop: 20, padding: "16px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+                <SectionHeading title="Mark installation complete" description="Set the completion date when the install crew finishes the job." />
+                <EditableField
+                  label="Install completed date"
+                  value={job.installCompletedAt}
+                  fieldName="installCompletedAt"
+                  type="date"
+                  onSave={(value) => handleFieldSave("installCompletedAt", value || null)}
+                />
+              </div>
+            ) : null}
 
             {!fieldTrackingInstalled ? (
               <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
