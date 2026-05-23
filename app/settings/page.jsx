@@ -7,6 +7,7 @@ import AppShell from "@/components/AppShell";
 import WorkspaceHeader from "@/components/WorkspaceHeader";
 import { useTheme } from "@/lib/theme";
 import { useUserRole } from "@/lib/useUserRole";
+import { appConfig } from "@/lib/app-config";
 
 const OPTIONS = [
   {
@@ -327,6 +328,10 @@ export default function SettingsPage() {
           <div className="settings-summary-row">
             <span className="panel-kicker">Role</span>
             <span style={{ textTransform: "capitalize" }}>{role}</span>
+          </div>
+          <div className="settings-summary-row">
+            <span className="panel-kicker">Environment</span>
+            <span>{appConfig.environmentLabel || "Production"}</span>
           </div>
           <div className="settings-summary-row">
             <span className="panel-kicker">Active theme</span>

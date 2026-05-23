@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { addImportBatchJob, createImportBatch, ensureImportBatchTables } from "@/lib/import-batches";
 import { canManageJobOperations, getNormalizedCompany, getRequestContext } from "@/lib/normalized-api";
 import { syncCustomerForJob } from "@/lib/customer-crm";
 
@@ -444,6 +445,7 @@ async function createJob(sql, companyId, draft, actorId) {
     });
 
     await sql`commit`;
+    return { id: jobId };
   } catch (error) {
     try { await sql`rollback`; } catch {}
     throw error;
@@ -606,10 +608,14 @@ export async function POST(req) {
 
   const body = await req.json();
   const jobs = Array.isArray(body?.jobs) ? body.jobs : [];
+  const importMeta = body?.importMeta || null;
   if (!jobs.length) return NextResponse.json({ added: 0, total: 0, failed: [] });
+
+  await ensureImportBatchTables(ctx.sql);
 
   let added = 0;
   const failed = [];
+  let batch = null;
 
   for (const draft of jobs) {
     try {
@@ -624,14 +630,44 @@ export async function POST(req) {
         failed.push({ id: draft.jobNumber, customer: draft.customerName, reason: "Job number already exists" });
         continue;
       }
-      await createJob(ctx.sql, company.id, draft, ctx.appUser?.id);
+      const created = await createJob(ctx.sql, company.id, draft, ctx.appUser?.id);
+      if (importMeta) {
+        if (!batch) {
+          batch = await createImportBatch(ctx.sql, {
+            companyId: company.id,
+            actorId: ctx.appUser?.id,
+            source: importMeta?.source || "csv",
+            mode: "import",
+            fileName: importMeta?.fileName || null,
+          });
+        }
+        await addImportBatchJob(ctx.sql, {
+          batchId: batch.id,
+          jobId: created.id,
+          jobNumber: draft.jobNumber,
+          customerName: draft.customerName,
+          sourceRow: draft.sourceRow || null,
+        });
+      }
       added++;
     } catch (error) {
       failed.push({ id: draft.jobNumber, customer: draft.customerName, reason: error.message || "Import failed" });
     }
   }
 
-  return NextResponse.json({ added, total: jobs.length, failed });
+  return NextResponse.json({
+    added,
+    total: jobs.length,
+    failed,
+    batch: batch ? {
+      id: batch.id,
+      source: batch.source,
+      mode: batch.mode,
+      fileName: batch.file_name,
+      createdAt: batch.created_at,
+      jobCount: added,
+    } : null,
+  });
 }
 
 export async function PUT(req) {

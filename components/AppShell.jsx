@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
 import { useTheme } from "@/lib/theme";
+import { appConfig } from "@/lib/app-config";
 
 const ALL_NAV = [
   { href: "/",           label: "Command center", icon: Home,          roles: null },
@@ -54,6 +55,7 @@ const PAGE_META = [
   { href: "/reports", title: "Reports", section: "Revenue", summary: "Spot pressure in the pipeline, cash flow, and operational bottlenecks." },
   { href: "/settings", title: "Settings", section: "Workspace", summary: "Control appearance, integrations, and company-level connections." },
   { href: "/import", title: "Import jobs", section: "Workspace", summary: "Bring new work into the system cleanly and safely." },
+  { href: "/import/sitecapture", title: "Import SiteCapture CSV", section: "Workspace", summary: "Bring raw SiteCapture exports into the CRM with a tracked rollback path." },
   { href: "/admin", title: "Admin", section: "Workspace", summary: "Owner-only controls for the broader operating environment." },
 ];
 
@@ -119,7 +121,7 @@ function SidebarContent({ children }) {
           <div className="sidebar-logo">
             <Image
               src="/logo-2026.png"
-              alt="Solarize Home Energy"
+              alt={appConfig.companyName}
               width={180}
               height={72}
               style={{ objectFit: "contain", width: "100%", height: "auto" }}
@@ -127,8 +129,28 @@ function SidebarContent({ children }) {
             />
           </div>
           <div className="sidebar-brand-copy">
-            <div className="sidebar-brand-label">Solarize Operations</div>
-            <div className="sidebar-brand-subtitle">CRM and install workflow</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div className="sidebar-brand-label">{appConfig.appName}</div>
+              {appConfig.environmentLabel ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "3px 8px",
+                    borderRadius: 999,
+                    background: "rgba(245, 158, 11, 0.14)",
+                    color: "#b45309",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {appConfig.environmentLabel}
+                </span>
+              ) : null}
+            </div>
+            <div className="sidebar-brand-subtitle">{appConfig.appSubtitle}</div>
           </div>
         </div>
 
@@ -235,6 +257,9 @@ function SidebarContent({ children }) {
           </div>
 
           <div className="shell-utility-row">
+            {appConfig.environmentLabel ? (
+              <span className="shell-chip shell-chip-strong">{appConfig.environmentLabel}</span>
+            ) : null}
             <span className="shell-chip shell-chip-strong">{todayLabel}</span>
             <span className="shell-chip">{role || "team"}</span>
             <span className="shell-chip">{resolvedTheme} mode</span>

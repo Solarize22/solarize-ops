@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { statusBadgeClass } from "@/lib/utils";
 import { evaluateImportDraft, mapCsvRowToDraft, parseCsv } from "@/lib/job-import";
-import { CheckCircle2, Download, FileText, Upload, X, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Download, FileText, RotateCcw, Upload, X, AlertTriangle } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "scheduled", label: "Scheduled", meaning: "Job exists but install is not complete yet." },
@@ -86,6 +87,7 @@ export default function ImportPage() {
   const [preview, setPreview] = useState(null);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [revertingBatchId, setRevertingBatchId] = useState(null);
   const fileRef = useRef(null);
 
   const validCount = preview?.rows.filter((row) => row.previewStatus === "valid" || row.previewStatus === "matched").length ?? 0;
@@ -164,6 +166,7 @@ export default function ImportPage() {
           total: preview.rows.length,
           succeeded: data.added ?? payload.length,
           failed,
+          batch: data.batch || null,
         });
       } else {
         const res = await fetch("/api/v2/import/jobs", {
@@ -180,6 +183,7 @@ export default function ImportPage() {
           total: preview.rows.length,
           succeeded: data.updated ?? payload.length,
           failed,
+          batch: null,
         });
       }
 
@@ -189,10 +193,23 @@ export default function ImportPage() {
         total: preview.rows.length,
         succeeded: 0,
         failed: [{ id: "-", reason: `Network error: ${error.message}` }],
+        batch: null,
       });
       setStep("done");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRevert(batchId) {
+    if (!batchId) return;
+    setRevertingBatchId(batchId);
+    try {
+      const res = await fetch(`/api/v2/import/batches/${batchId}`, { method: "DELETE" });
+      await parseApiResponse(res, "Failed to revert import batch");
+      setResults((current) => current ? { ...current, batch: null } : current);
+    } finally {
+      setRevertingBatchId(null);
     }
   }
 
@@ -264,6 +281,16 @@ export default function ImportPage() {
             <a className="btn btn-outline" href="/import-instructions.html" target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 7 }}>
               <FileText size={14} /> Open import instructions
             </a>
+          </div>
+
+          <div className="card" style={{ padding: "16px 18px", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: "#1d4ed8" }}>Importing from SiteCapture?</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>
+              Use the dedicated SiteCapture path for raw Advanced Search exports. It handles the two-row header format, SiteCapture field names, and gives you a tracked revert button for created imports.
+            </div>
+            <Link href="/import/sitecapture" className="btn btn-outline" style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+              <FileText size={14} /> Open SiteCapture importer
+            </Link>
           </div>
 
           <div className="card" style={{ padding: "16px 18px", marginBottom: 16 }}>
@@ -433,6 +460,28 @@ export default function ImportPage() {
                 </div>
               ))}
             </div>
+
+            {results.batch && (
+              <div style={{ border: "1px solid #fde68a", background: "#fffbeb", borderRadius: "var(--radius-md)", padding: "14px 16px", marginBottom: results.failed.length ? 20 : 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>Need to undo this import?</div>
+                    <div style={{ fontSize: 12, color: "#78350f", marginTop: 4 }}>
+                      Revert batch deletes the jobs created by this import batch and their attached history. It does not undo update-mode imports.
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleRevert(results.batch.id)}
+                    disabled={revertingBatchId === results.batch.id}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+                  >
+                    <RotateCcw size={13} />
+                    {revertingBatchId === results.batch.id ? "Reverting..." : "Revert this import"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {results.failed.length > 0 && (
               <div style={{ border: "1px solid #fca5a5", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
