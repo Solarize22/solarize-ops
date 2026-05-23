@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canCreateInvoices, canSeeFinancials, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
+import { syncWorkflowFollowUpTask } from "@/lib/job-automation";
 
 export async function GET(req, { params }) {
   try {
@@ -190,6 +191,14 @@ export async function POST(req, { params }) {
         ${`Created ${invoiceType.toUpperCase()} invoice ${invoiceNumber}`}
       )
     `;
+
+    if (targetStatus) {
+      await syncWorkflowFollowUpTask(ctx.sql, access.id, targetStatus, {
+        changedBy: ctx.appUser?.id || null,
+        effectiveDate: issuedAt || dueAt,
+        invoiceDueAt: dueAt,
+      });
+    }
 
     await ctx.sql`commit`;
     return NextResponse.json(inserted[0], { status: 201 });

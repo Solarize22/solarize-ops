@@ -21,6 +21,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
+import { EditableField } from "@/components/EditableField";
+import { isFieldEditable } from "@/components/JobEditGuard";
 
 const INVOICE_TYPES = ["M1", "M2", "ADDER", "SPECIAL"];
 const PAYMENT_METHODS = ["ACH", "WIRE", "CHECK", "CREDIT_CARD", "FINANCER", "CASH", "OTHER"];
@@ -31,6 +33,7 @@ const INSPECTION_TYPES = ["electrical", "building", "final", "other"];
 const INSPECTION_RESULTS = ["scheduled", "passed", "failed", "cancelled"];
 const FIELD_VISIT_TYPES = ["install_day", "site_visit", "service_call"];
 const FIELD_VISIT_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"];
+const AUTOMATION_TASK_MARKER = "[workflow-automation]";
 
 const STATUS_META = {
   created: { label: "Created", bg: "#f1f5f9", color: "#334155" },
@@ -60,6 +63,27 @@ const TIMELINE = [
   { key: "m2_invoiced", label: "Final billing" },
   { key: "paid_in_full", label: "Paid" },
 ];
+
+function timelineKeyForStatus(status) {
+  switch (status) {
+    case "inspection_failed":
+    case "inspection_passed":
+      return "inspection_scheduled";
+    case "pto_submitted":
+      return "pto_granted";
+    case "m1_invoiced":
+    case "m1_partially_paid":
+    case "m1_paid":
+      return "pto_granted";
+    case "m2_partially_paid":
+      return "m2_invoiced";
+    case "on_hold":
+    case "cancelled":
+      return "created";
+    default:
+      return status;
+  }
+}
 
 function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.created;
@@ -115,6 +139,14 @@ function isOverdueTask(task) {
 
 function fieldValue(value) {
   return value || "-";
+}
+
+function isAutomationTask(task) {
+  return String(task?.details || "").includes(AUTOMATION_TASK_MARKER);
+}
+
+function taskDetailsText(task) {
+  return String(task?.details || "").replace(AUTOMATION_TASK_MARKER, "").trim() || "No extra details on this task.";
 }
 
 function nextAction(job) {
@@ -246,8 +278,24 @@ function EventLabel({ item }) {
   if (item.eventType === "note" && item.note?.startsWith("CRM contact logged:")) return "CRM contact logged";
   if (item.eventType === "note" && item.note?.startsWith("CRM follow-up task")) return "Follow-up task updated";
   if (item.eventType === "note" && item.note === "Updated CRM follow-up details") return "CRM details updated";
+  if (item.eventType === "note" && item.note?.startsWith("Workflow next step set:")) return "Next step updated";
+  if (item.eventType === "note" && item.note?.startsWith("Workflow next step cleared:")) return "Next step cleared";
+  if (item.eventType === "note" && item.note?.startsWith("Field visit logged:")) return "Field visit logged";
+  if (item.eventType === "note" && item.note?.startsWith("Field visit updated:")) return "Field visit updated";
+  if (item.eventType === "note" && item.note?.startsWith("Inspection recorded:")) return "Inspection logged";
   if (item.eventType === "note") return "Project record updated";
   return item.eventType?.replace(/_/g, " ") || "Activity";
+}
+
+function EventSummary({ item }) {
+  if (item.eventType === "status_changed") {
+    const fromStatus = item.fromStatus ? formatLabel(item.fromStatus) : "Unknown";
+    const toStatus = item.toStatus ? formatLabel(item.toStatus) : "Unknown";
+    return `${fromStatus} to ${toStatus}${item.note ? ` | ${item.note}` : ""}`;
+  }
+  if (item.note) return item.note;
+  if (item.toStatus) return `Status: ${formatLabel(item.toStatus)}`;
+  return "General update";
 }
 
 export default function JobDetailPage() {
@@ -262,6 +310,7 @@ export default function JobDetailPage() {
   const [fieldTrackingInstalled, setFieldTrackingInstalled] = useState(true);
   const [history, setHistory] = useState([]);
   const [crm, setCrm] = useState(null);
+  const [googleCalendar, setGoogleCalendar] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -311,8 +360,8 @@ export default function JobDetailPage() {
       setError("");
       try {
         const [detailRes, teamRes] = await Promise.all([
-          fetch(`/api/v2/jobs/${id}/full`),
-          fetch("/api/v2/team"),
+          fetch(`/api/v2/jobs/${id}/full?_=${Date.now()}`, { cache: "no-store" }),
+          fetch(`/api/v2/team?_=${Date.now()}`, { cache: "no-store" }),
         ]);
         const detailData = await detailRes.json().catch(() => ({}));
         const teamData = teamRes.ok ? await teamRes.json().catch(() => []) : [];
@@ -326,6 +375,7 @@ export default function JobDetailPage() {
         setHistory(Array.isArray(detailData.history) ? detailData.history : []);
         setPayments(Array.isArray(detailData.payments) ? detailData.payments : []);
         setCrm(detailData.crm || null);
+        setGoogleCalendar(detailData.googleCalendar || null);
         setTeamMembers(Array.isArray(teamData) ? teamData : []);
       } catch (err) {
         if (!cancelled) setError(err.message || "Failed to load job");
@@ -454,7 +504,10 @@ export default function JobDetailPage() {
   const followUpTasks = useMemo(() => crm?.tasks || [], [crm]);
   const openTasks = useMemo(() => followUpTasks.filter((task) => task.status !== "done"), [followUpTasks]);
   const overdueTasks = useMemo(() => openTasks.filter((task) => isOverdueTask(task)), [openTasks]);
+  const workflowTask = useMemo(() => openTasks.find((task) => isAutomationTask(task)) || null, [openTasks]);
   const crmInstalled = crm?.installed !== false;
+  const googleCalendarInstalled = !!googleCalendar && googleCalendar.installed !== false;
+  const googleCalendarEvents = useMemo(() => googleCalendar?.events || [], [googleCalendar]);
   const availableStatusOptions = useMemo(() => getAllowedStatusTransitions(job?.currentStatus), [job?.currentStatus]);
 
   const quickActions = useMemo(() => {
@@ -678,6 +731,27 @@ export default function JobDetailPage() {
     }
   }
 
+  async function handleFieldSave(fieldName, value) {
+    setMessage({ type: "", text: "" });
+    try {
+      const payload = {};
+      payload[fieldName] = value || null;
+
+      const res = await fetch(`/api/v2/jobs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed to update ${fieldName}`);
+      setMessage({ type: "success", text: `${fieldName} updated.` });
+      setRefreshKey((v) => v + 1);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message || `Failed to update ${fieldName}` });
+      throw err;
+    }
+  }
+
   async function handleCrmSave(e) {
     e.preventDefault();
     setMessage({ type: "", text: "" });
@@ -814,7 +888,7 @@ export default function JobDetailPage() {
   if (error || !job) return <AppShell><div style={{ padding: "60px 20px", textAlign: "center" }}><div style={{ color: "var(--text-secondary)", marginBottom: 12 }}>{error || "Job not found."}</div><Link href="/jobs" style={{ color: "var(--text-primary)", textDecoration: "none" }}>Back to jobs</Link></div></AppShell>;
 
   const status = statusMeta(job.currentStatus);
-  const timelineIndex = Math.max(0, TIMELINE.findIndex((item) => item.key === job.currentStatus));
+  const timelineIndex = Math.max(0, TIMELINE.findIndex((item) => item.key === timelineKeyForStatus(job.currentStatus)));
   const ownerOptions = teamMembers.filter((member) => member.isActive);
   const openFieldReturns = revisitVisits.filter((visit) => !["completed", "cancelled"].includes(visit.status)).length;
 
@@ -1013,9 +1087,23 @@ export default function JobDetailPage() {
                   ]} />
                 </div>
 
-                <div style={{ marginTop: 16, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Internal notes</div>
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{job.notes || "No notes yet."}</div>
+                <div style={{ marginTop: 16 }}>
+                  {canManageOps ? (
+                    <div style={{ padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
+                      <EditableField
+                        label="Internal notes"
+                        value={job.notes}
+                        fieldName="notes"
+                        type="textarea"
+                        onSave={(value) => handleFieldSave("notes", value || null)}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-2)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Internal notes</div>
+                      <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{job.notes || "No notes yet."}</div>
+                    </div>
+                  )}
                 </div>
 
                 {canManageOps ? <div style={{ marginTop: 12 }}><button className="btn btn-outline" onClick={() => setEditingJob(true)}>Edit job details</button></div> : null}
@@ -1045,6 +1133,19 @@ export default function JobDetailPage() {
               { label: "Crew", value: fieldValue(job.crewNames?.join(", ")) },
               { label: "Next action", value: nextAction(job) },
             ]} />
+
+            {canManageOps && isFieldEditable("installCompletedAt") ? (
+              <div style={{ marginTop: 20, padding: "16px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+                <SectionHeading title="Mark installation complete" description="Set the completion date when the install crew finishes the job." />
+                <EditableField
+                  label="Install completed date"
+                  value={job.installCompletedAt}
+                  fieldName="installCompletedAt"
+                  type="date"
+                  onSave={(value) => handleFieldSave("installCompletedAt", value || null)}
+                />
+              </div>
+            ) : null}
 
             {!fieldTrackingInstalled ? (
               <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
@@ -1348,8 +1449,7 @@ export default function JobDetailPage() {
                       </div>
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                      {item.fromStatus ? `From ${item.fromStatus} to ${item.toStatus}` : item.toStatus ? `Status: ${item.toStatus}` : "General update"}
-                      {item.note ? ` | ${item.note}` : ""}
+                      <EventSummary item={item} />
                     </div>
                   </div>
                 ))}
@@ -1371,6 +1471,66 @@ export default function JobDetailPage() {
                     <MiniMetric label="Last contact" value={crm?.summary?.lastContactAt ? <DateTimeStack value={crm.summary.lastContactAt} /> : "Not logged"} />
                     <MiniMetric label="Next follow-up" value={crm?.summary?.nextFollowUpAt ? formatDate(crm.summary.nextFollowUpAt) : "Not set"} strong />
                     <MiniMetric label="Owner" value={crm?.summary?.followUpOwnerName || "Unassigned"} />
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <SectionHeading title="Google Calendar" description="Scheduled CRM work can live in Google Calendar without losing the job link back to this record." />
+                    {!googleCalendarInstalled ? (
+                      <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "#fff8e8", border: "1px solid #f3d489", color: "#8a5308", fontSize: 13, lineHeight: 1.6 }}>
+                        Apply `db/migrations/006_google_calendar_sync.sql` to enable Google Calendar linking and sync status on jobs.
+                      </div>
+                    ) : !googleCalendar?.connected ? (
+                      <div style={{ padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                        Google Calendar is not connected for this company yet. Connect it from <Link href="/settings" style={{ color: "inherit", fontWeight: 700 }}>Settings</Link> to sync installs, inspections, and field visits.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="detail-summary-grid three compact" style={{ marginBottom: 12 }}>
+                          <MiniMetric label="Calendar" value={googleCalendar.connection?.calendarSummary || googleCalendar.connection?.calendarId || "Connected"} />
+                          <MiniMetric label="Linked events" value={googleCalendarEvents.length} />
+                          <MiniMetric label="Last sync" value={googleCalendar.connection?.lastSyncedAt ? <DateTimeStack value={googleCalendar.connection.lastSyncedAt} /> : "Not synced"} />
+                        </div>
+
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: googleCalendarEvents.length > 0 ? 12 : 0 }}>
+                          <Link href="/settings" className="btn btn-outline">
+                            Manage sync
+                          </Link>
+                          {googleCalendarEvents.slice(0, 2).map((event) => (
+                            event.htmlLink ? (
+                              <a key={event.id} className="btn btn-ghost" href={event.htmlLink} target="_blank" rel="noreferrer">
+                                Open {event.sourceLabel}
+                              </a>
+                            ) : null
+                          ))}
+                        </div>
+
+                        {googleCalendarEvents.length > 0 ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {googleCalendarEvents.slice(0, 4).map((event) => (
+                              <div key={event.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "10px 12px", background: "var(--surface-2)" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <span className="badge badge-blue">{event.sourceLabel}</span>
+                                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                                      Last synced {event.lastSyncedAt ? formatDate(event.lastSyncedAt) : "recently"}
+                                    </span>
+                                  </div>
+                                  {event.htmlLink ? (
+                                    <a href={event.htmlLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700, color: "inherit", textDecoration: "none" }}>
+                                      Open event
+                                    </a>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
+                            This job does not have a synced Google event yet. Run a sync from Settings after the schedule dates are ready.
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
@@ -1519,11 +1679,12 @@ export default function JobDetailPage() {
                               <div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
                                   <div style={{ fontWeight: 700, textDecoration: task.status === "done" ? "line-through" : "none" }}>{task.title}</div>
+                                  {isAutomationTask(task) ? <span className="badge badge-blue">Auto</span> : null}
                                   <span className={`badge ${taskPriorityMeta(task.priority)}`}>{formatLabel(task.priority)}</span>
                                   <span className={`badge ${taskStatusMeta(task.status)}`}>{formatLabel(task.status)}</span>
                                 </div>
                                 <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                                  {task.details || "No extra details on this task."}
+                                  {taskDetailsText(task)}
                                 </div>
                               </div>
                               <div style={{ textAlign: "right", fontSize: 12, color: "var(--text-secondary)" }}>
@@ -1561,6 +1722,18 @@ export default function JobDetailPage() {
           <ActionPanel title="Immediate actions" icon={ShieldCheck}>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>This panel should answer one question clearly: what should happen next on this job?</div>
             <div style={{ display: "grid", gap: 10 }}>
+              {workflowTask ? (
+                <div className="detail-callout strong">
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--amber-text)" }}>Active workflow handoff</div>
+                  <div style={{ marginTop: 6, fontWeight: 800 }}>{workflowTask.title}</div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                    {taskDetailsText(workflowTask)}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                    Due {workflowTask.dueAt ? formatDate(workflowTask.dueAt) : "not set"} | Owner {workflowTask.ownerName || "Unassigned"}
+                  </div>
+                </div>
+              ) : null}
               <div className="detail-callout strong"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--amber-text)" }}>Next required action</div><div style={{ marginTop: 6, fontWeight: 800 }}>{nextAction(job)}</div></div>
               <div className="detail-callout"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Current status</div><div style={{ marginTop: 6, fontWeight: 800 }}>{status.label}</div></div>
               <div className="detail-callout"><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700, color: "var(--text-tertiary)" }}>Most relevant date</div><div style={{ marginTop: 6, fontWeight: 800 }}><DateTimeStack value={operationalDate(job)} /></div></div>

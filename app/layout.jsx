@@ -2,10 +2,11 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { UserRoleProvider } from "@/lib/useUserRole";
 import { ThemeProvider } from "@/lib/theme";
+import { appConfig } from "@/lib/app-config";
 
 export const metadata = {
-  title: "Solarize Home Energy",
-  description: "Solar operations dashboard",
+  title: appConfig.appName,
+  description: appConfig.appDescription,
   icons: {
     icon: "/logo-2026.png",
     apple: "/logo-2026.png",

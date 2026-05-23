@@ -146,6 +146,9 @@ function statusMeta(status) {
 }
 
 function nextAction(job) {
+  const taskTitle = job?.crmSummary?.nextTaskTitle;
+  if (taskTitle) return taskTitle;
+
   switch (job.currentStatus) {
     case "created":
       return "Schedule install";
@@ -397,7 +400,9 @@ export default function JobsPage() {
   async function loadJobs() {
     setLoading(true);
     try {
-      const response = await fetch("/api/v2/jobs");
+      const response = await fetch(`/api/v2/jobs?_=${Date.now()}`, {
+        cache: "no-store",
+      });
       const data = response.ok ? await response.json().catch(() => []) : [];
       setJobs(Array.isArray(data) ? data : []);
     } catch {
@@ -409,6 +414,22 @@ export default function JobsPage() {
 
   useEffect(() => {
     loadJobs();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const refreshJobs = () => {
+      loadJobs();
+    };
+
+    window.addEventListener("focus", refreshJobs);
+    document.addEventListener("visibilitychange", refreshJobs);
+
+    return () => {
+      window.removeEventListener("focus", refreshJobs);
+      document.removeEventListener("visibilitychange", refreshJobs);
+    };
   }, []);
 
   useEffect(() => {
@@ -1238,7 +1259,16 @@ export default function JobsPage() {
                         </td>
                       ) : null}
                       {visibleColumns.nextStep ? (
-                        <td style={cellStyle({ fontWeight: 600, color: "var(--text-primary)", minWidth: 150 })}>{nextAction(job)}</td>
+                        <td style={cellStyle({ minWidth: 180 })}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{nextAction(job)}</span>
+                            {job.crmSummary?.nextTaskDueAt ? (
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                                Due {formatDate(job.crmSummary.nextTaskDueAt)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                       ) : null}
                       {visibleColumns.workflowDate ? (
                         <td style={cellStyle({ color: "var(--text-secondary)", whiteSpace: "nowrap" })}>{formatDate(getJobWorkflowDate(job))}</td>

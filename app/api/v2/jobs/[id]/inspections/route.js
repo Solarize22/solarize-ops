@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canManageJobOperations, ensureAccessToJob, getRequestContext } from "@/lib/normalized-api";
 import { canTransitionStatus } from "@/lib/job-workflow";
+import { syncWorkflowFollowUpTask } from "@/lib/job-automation";
 
 const VALID_TYPES = new Set(["electrical", "building", "final", "other"]);
 const VALID_RESULTS = new Set(["scheduled", "passed", "failed", "cancelled"]);
@@ -175,6 +176,15 @@ export async function POST(req, { params }) {
           ${notes || `Inspection recorded: ${result}`}
         )
       `;
+    }
+
+    if (nextStatus) {
+      await syncWorkflowFollowUpTask(ctx.sql, access.id, nextStatus, {
+        changedBy: ctx.appUser?.id || null,
+        effectiveDate: scheduledAt || completedAt,
+        inspectionScheduledAt: scheduledAt,
+        inspectionCompletedAt: completedAt,
+      });
     }
 
     await ctx.sql`commit`;

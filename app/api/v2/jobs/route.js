@@ -4,6 +4,8 @@ import { isCrmInstalled } from "@/lib/job-crm";
 import { customerIdentityForRow } from "@/lib/customer-crm";
 import { isFieldTrackingInstalled } from "@/lib/field-tracking";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const ctx = await getRequestContext();
@@ -85,6 +87,35 @@ export async function GET() {
           )
           else 0
         end as overdue_task_count
+        ,
+        case
+          when ${crmInstalled}::boolean then (
+            select t.title
+            from job_follow_up_tasks t
+            where t.job_id = j.id
+              and t.status <> 'done'
+            order by
+              case when t.due_at is null then 1 else 0 end asc,
+              t.due_at asc,
+              t.created_at asc
+            limit 1
+          )
+          else null
+        end as next_task_title,
+        case
+          when ${crmInstalled}::boolean then (
+            select t.due_at
+            from job_follow_up_tasks t
+            where t.job_id = j.id
+              and t.status <> 'done'
+            order by
+              case when t.due_at is null then 1 else 0 end asc,
+              t.due_at asc,
+              t.created_at asc
+            limit 1
+          )
+          else null
+        end as next_task_due_at
       from jobs j
       left join lateral (
         select
@@ -212,6 +243,8 @@ export async function GET() {
           followUpOwnerName: row.follow_up_owner_name,
           openTaskCount: row.open_task_count,
           overdueTaskCount: row.overdue_task_count,
+          nextTaskTitle: row.next_task_title,
+          nextTaskDueAt: row.next_task_due_at,
         } : null,
         financialSummary: showFinancials ? {
           totalInvoicedCents: row.total_invoiced_cents,

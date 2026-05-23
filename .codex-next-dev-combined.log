@@ -1,0 +1,344 @@
+
+> solarize-ops@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.29
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1183ms
+ ✓ Compiled /middleware in 425ms (189 modules)
+ ○ Compiling /import/sitecapture ...
+ ✓ Compiled /import/sitecapture in 2.1s (981 modules)
+ GET /import/sitecapture 200 in 2322ms
+ ✓ Compiled in 317ms (409 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (192kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled / in 304ms (1007 modules)
+ GET / 200 in 436ms
+ POST / 200 in 32ms
+ ✓ Compiled /api/users/me in 176ms (617 modules)
+ ✓ Compiled (623 modules)
+ GET /api/users/me 200 in 967ms
+ GET /api/v2/service?_=1777051481204 200 in 1170ms
+ GET /api/v2/service?_=1777051481203 200 in 1224ms
+ POST / 200 in 13ms
+ GET /api/v2/schedule?_=1777051481203 200 in 1367ms
+ GET /api/v2/jobs?_=1777051481203 200 in 1384ms
+ GET /api/v2/jobs?_=1777051481204 200 in 1376ms
+ ✓ Compiled /api/v2/reports in 81ms (625 modules)
+ GET /api/v2/schedule?_=1777051481205 200 in 565ms
+ GET /api/users/me 200 in 411ms
+ GET /api/v2/jobs?_=1777051482215 200 in 609ms
+ GET /api/v2/service?_=1777051482215 200 in 660ms
+ GET /api/v2/schedule?_=1777051482215 200 in 804ms
+ GET /api/v2/reports?_=1777051482215 200 in 1245ms
+ ✓ Compiled /settings in 436ms (1124 modules)
+ ✓ Compiled /api/v2/integrations/google-calendar in 100ms (681 modules)
+ GET /api/v2/integrations/google-calendar 200 in 1653ms
+ GET /api/v2/integrations/google-calendar 200 in 1090ms
+ ✓ Compiled /import in 226ms (1140 modules)
+ ✓ Compiled /api/v2/import/batches in 91ms (691 modules)
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 1165ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 723ms
+ GET /api/v2/jobs 200 in 968ms
+ ✓ Compiled /api/v2/import/jobs in 108ms (693 modules)
+ PUT /api/v2/import/jobs 200 in 31180ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 1006ms
+ ✓ Compiled /jobs in 335ms (1151 modules)
+ GET /api/v2/jobs?_=1777051554268 200 in 838ms
+ GET /api/v2/jobs?_=1777051554268 200 in 842ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 675ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 483ms
+ GET /api/v2/jobs 200 in 1165ms
+ POST /api/v2/import/jobs 200 in 25907ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 783ms
+ GET /api/v2/jobs?_=1777051678089 200 in 869ms
+ GET /api/v2/jobs?_=1777051678089 200 in 882ms
+ ✓ Compiled in 506ms (1130 modules)
+ ✓ Compiled in 168ms (474 modules)
+ ✓ Compiled in 551ms (1319 modules)
+ ✓ Compiled in 533ms (1130 modules)
+ ✓ Compiled /_not-found in 208ms (1119 modules)
+ GET /import/sitecapture 404 in 309ms
+ PUT /api/v2/import/sitecapture-events 404 in 16ms
+ ✓ Compiled in 178ms (1119 modules)
+ ✓ Compiled /api/v2/jobs in 257ms (686 modules)
+ GET /api/v2/jobs?_=1777052572899 200 in 1688ms
+ GET /api/v2/jobs?_=1777052575784 200 in 805ms
+ GET /api/v2/jobs?_=1777053285993 200 in 1836ms
+ GET /api/v2/jobs?_=1777053286002 200 in 1846ms
+ ✓ Compiled /api/v2/reports in 158ms (688 modules)
+ ✓ Compiled (692 modules)
+ GET /api/v2/service?_=1777053289164 200 in 900ms
+ GET /api/v2/service?_=1777053289163 200 in 976ms
+ GET /api/v2/jobs?_=1777053289163 200 in 1014ms
+ GET /api/v2/jobs?_=1777053289164 200 in 1025ms
+ GET /api/v2/schedule?_=1777053289163 200 in 1061ms
+ GET /api/v2/reports?_=1777053289163 200 in 1238ms
+ GET /api/v2/schedule?_=1777053289164 200 in 467ms
+ GET /api/v2/reports?_=1777053289164 200 in 783ms
+ ✓ Compiled /customers in 362ms (1160 modules)
+ ✓ Compiled /api/v2/customers in 104ms (699 modules)
+ GET /api/v2/customers?_=1777053294016 200 in 691ms
+ GET /api/v2/customers?_=1777053294016 200 in 772ms
+ GET /api/v2/jobs?_=1777053297478 200 in 585ms
+ GET /api/v2/jobs?_=1777053297478 200 in 629ms
+ GET /api/v2/jobs?_=1777053327389 200 in 922ms
+ ✓ Compiled /api/v2/import/batches in 104ms (702 modules)
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 703ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 530ms
+ GET /api/v2/jobs 200 in 1036ms
+ ✓ Compiled /api/v2/import/sitecapture-events in 195ms (686 modules)
+ GET /import/sitecapture 200 in 76ms
+ PUT /api/v2/import/sitecapture-events 200 in 50949ms
+ ✓ Compiled /api/users/me in 119ms (689 modules)
+ ✓ Compiled (691 modules)
+ POST /import/sitecapture 200 in 248ms
+ POST /import/sitecapture 200 in 9ms
+ GET /api/users/me 200 in 708ms
+ GET /api/users/me 200 in 300ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 1049ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 563ms
+ GET /api/v2/jobs 200 in 942ms
+ PUT /api/v2/import/sitecapture-events 200 in 50013ms
+ GET /api/v2/import/batches?source=sitecapture&limit=5 200 in 920ms
+ GET /api/v2/jobs?_=1777053566382 200 in 852ms
+ GET /api/v2/jobs?_=1777053566382 200 in 864ms
+ ✓ Compiled / in 142ms (694 modules)
+ ✓ Compiled /api/v2/reports in 96ms (696 modules)
+ ✓ Compiled (700 modules)
+ GET /api/v2/service?_=1777053593223 200 in 836ms
+ GET /api/v2/service?_=1777053593223 200 in 890ms
+ GET /api/v2/schedule?_=1777053593223 200 in 1068ms
+ GET /api/v2/jobs?_=1777053593223 200 in 1079ms
+ GET /api/v2/jobs?_=1777053593223 200 in 1205ms
+ GET /api/v2/reports?_=1777053593223 200 in 1247ms
+ GET /api/v2/schedule?_=1777053593223 200 in 758ms
+ GET /api/v2/reports?_=1777053593223 200 in 809ms
+ ✓ Compiled /api/v2/customers in 132ms (702 modules)
+ GET /api/v2/customers?_=1777053596536 200 in 701ms
+ GET /api/v2/customers?_=1777053596536 200 in 731ms
+ GET /api/v2/jobs?_=1777053600972 200 in 815ms
+ GET /api/v2/jobs?_=1777053600972 200 in 897ms
+ GET /api/v2/jobs?_=1777053618878 200 in 1225ms
+ GET /api/v2/service?_=1777053622486 200 in 605ms
+ GET /api/v2/jobs?_=1777053622338 200 in 949ms
+ GET /api/v2/schedule?_=1777053622486 200 in 830ms
+ GET /api/v2/jobs?_=1777053622486 200 in 851ms
+ GET /api/v2/jobs?_=1777053622486 200 in 930ms
+ GET /api/v2/service?_=1777053622486 200 in 593ms
+ GET /api/v2/reports?_=1777053622486 200 in 1273ms
+ GET /api/v2/schedule?_=1777053622486 200 in 637ms
+ GET /api/v2/reports?_=1777053622486 200 in 1125ms
+ GET /api/v2/customers?_=1777053639150 200 in 821ms
+ GET /api/v2/customers?_=1777053639150 200 in 898ms
+ ✓ Compiled /customers/[id] in 486ms (1134 modules)
+ ✓ Compiled /api/v2/customers/[id] in 104ms (655 modules)
+ ✓ Compiled (657 modules)
+ GET /api/v2/team?_=1777053653088 200 in 922ms
+ GET /api/v2/team?_=1777053653088 200 in 997ms
+ GET /api/v2/customers/71cd76a2-07cd-40e0-b353-e73187fbe8e2?_=1777053653087 200 in 1178ms
+ GET /api/v2/customers/71cd76a2-07cd-40e0-b353-e73187fbe8e2?_=1777053653088 200 in 1309ms
+ ✓ Compiled /api/v2/customers/[id]/contact-log in 112ms (652 modules)
+ POST /api/v2/customers/71cd76a2-07cd-40e0-b353-e73187fbe8e2/contact-log 400 in 1372ms
+ GET /api/v2/jobs?_=1777053685105 200 in 1107ms
+ GET /api/v2/jobs?_=1777053685105 200 in 1129ms
+ ✓ Compiled /jobs/[id] in 457ms (1137 modules)
+ GET /jobs/5257 200 in 771ms
+ POST /jobs/5257 200 in 30ms
+ ✓ Compiled /api/v2/jobs/[id]/full in 164ms (654 modules)
+ ✓ Compiled (658 modules)
+ POST /jobs/5257 200 in 325ms
+ GET /api/users/me 200 in 828ms
+ GET /api/v2/team?_=1777053691761 200 in 915ms
+ GET /api/v2/team?_=1777053691759 200 in 927ms
+ GET /api/users/me 200 in 338ms
+ GET /api/v2/jobs/5257/full?_=1777053691761 200 in 1216ms
+ GET /api/v2/jobs/5257/full?_=1777053691759 200 in 1292ms
+ GET /api/v2/jobs?_=1777053712539 200 in 987ms
+ GET /api/v2/jobs?_=1777053712540 200 in 1034ms
+ ✓ Compiled /scheduling in 286ms (1154 modules)
+ ✓ Compiled /api/v2/integrations/google-calendar/events in 119ms (666 modules)
+ ✓ Compiled (668 modules)
+ GET /api/v2/integrations/google-calendar/events 200 in 1093ms
+ GET /api/v2/jobs 200 in 1125ms
+ GET /api/v2/jobs 200 in 1144ms
+ GET /api/v2/schedule 200 in 1187ms
+ GET /api/v2/integrations/google-calendar/events 200 in 1171ms
+ GET /api/v2/schedule 200 in 1272ms
+ ✓ Compiled /api/v2/integrations/google-calendar/events/[eventId]/match in 88ms (654 modules)
+ PATCH /api/v2/integrations/google-calendar/events/5569a8d4-8dc4-43fe-a99a-47924f8af20f/match 500 in 1208ms
+ ✓ Compiled /service in 227ms (1152 modules)
+ ✓ Compiled /api/v2/service in 102ms (661 modules)
+ GET /api/v2/service 200 in 881ms
+ GET /api/v2/service 200 in 430ms
+ ✓ Compiled /api/v2/reports in 109ms (655 modules)
+ GET /api/v2/service?_=1777053758026 200 in 991ms
+ GET /api/v2/service?_=1777053758026 200 in 1037ms
+ GET /api/v2/jobs?_=1777053758025 200 in 1207ms
+ GET /api/v2/schedule?_=1777053758026 200 in 1225ms
+ GET /api/v2/jobs?_=1777053758026 200 in 1241ms
+ GET /api/v2/reports?_=1777053758026 200 in 1409ms
+ GET /api/v2/schedule?_=1777053758026 200 in 630ms
+ GET /api/v2/reports?_=1777053758026 200 in 1099ms
+ GET /api/v2/jobs?_=1777054077480 200 in 1069ms
+ GET /api/v2/jobs?_=1777054077480 200 in 1135ms
+ GET /api/v2/jobs?_=1777054120481 200 in 930ms
+ GET /jobs/4782 200 in 87ms
+ ✓ Compiled /api/users/me in 143ms (640 modules)
+ ✓ Compiled (646 modules)
+ POST /jobs/4782 200 in 293ms
+ POST /jobs/4782 200 in 16ms
+ GET /api/users/me 200 in 691ms
+ GET /api/v2/team?_=1777054124365 200 in 728ms
+ GET /api/v2/team?_=1777054124367 200 in 737ms
+ GET /api/v2/jobs/4782/full?_=1777054124365 200 in 944ms
+ GET /api/v2/jobs/4782/full?_=1777054124366 200 in 947ms
+ GET /api/users/me 200 in 298ms
+ ✓ Compiled /api/v2/jobs/[id]/status-transitions in 255ms (649 modules)
+ POST /api/v2/jobs/4782/status-transitions 200 in 1829ms
+ GET /api/v2/team?_=1777054133416 200 in 461ms
+ GET /api/v2/jobs/4782/full?_=1777054133416 200 in 761ms
+ POST /api/v2/jobs/4782/status-transitions 200 in 1281ms
+ GET /api/v2/team?_=1777054184123 200 in 446ms
+ GET /api/v2/jobs/4782/full?_=1777054184123 200 in 823ms
+ POST /api/v2/jobs/4782/status-transitions 200 in 1441ms
+ GET /api/v2/team?_=1777054207251 200 in 505ms
+ GET /api/v2/jobs/4782/full?_=1777054207251 200 in 911ms
+ GET /api/v2/jobs?_=1777054248908 200 in 1116ms
+ GET /api/v2/jobs?_=1777054248909 200 in 1178ms
+ GET /api/v2/jobs?_=1777054832503 200 in 2167ms
+ ✓ Compiled in 483ms (1101 modules)
+ ✓ Compiled in 566ms (1103 modules)
+ ✓ Compiled in 89ms (494 modules)
+ ✓ Compiled in 166ms (1089 modules)
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /jobs 200 in 125ms
+ POST /jobs 200 in 19ms
+ ✓ Compiled /api/users/me in 102ms (640 modules)
+ ✓ Compiled (642 modules)
+ POST /jobs 200 in 381ms
+ GET /api/users/me 200 in 1952ms
+ GET /api/users/me 200 in 461ms
+ GET /api/v2/jobs?_=1777056850679 200 in 2538ms
+ GET /api/v2/jobs?_=1777056850681 200 in 2542ms
+ ✓ Compiled in 141ms (494 modules)
+ ✓ Compiled in 53ms (480 modules)
+ ✓ Compiled /customers in 329ms (645 modules)
+ ⨯ TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js:33:42)
+digest: "1268862911"
+TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js:33:42)
+    at require (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:39:20088)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108280
+    at eo (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108465)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:110694
+    at Object._fromJSON (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:111250)
+    at JSON.parse (<anonymous>)
+    at eu (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108959)
+    at en (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108027)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115169
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115186
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115219
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115236
+    at t (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115459)
+ ⨯ TypeError: __webpack_modules__[moduleId] is not a function
+    at Object.__webpack_require__ [as require] (C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js:33:42)
+    at require (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:39:20088)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108280
+    at eo (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108465)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:110694
+    at Object._fromJSON (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:111250)
+    at JSON.parse (<anonymous>)
+    at eu (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108959)
+    at en (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108027)
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115169
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115186
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115219
+    at C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115236
+    at t (C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115459) {
+  page: '/customers'
+}
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 801ms (1350 modules)
+ GET /customers 500 in 1137ms
+ GET /api/v2/jobs?_=1777057230663 200 in 2661ms
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/dequal' in C:\Users\tomyo\Projects\solarize-ops\.next\server for build dependencies doesn't lead to expected result 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\dequal.js', but to 'Error: Can't resolve './vendor-chunks/dequal' in 'C:\Users\tomyo\Projects\solarize-ops\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/dequal (expected C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\dequal.js)
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\dequal.js'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/use-sync-external-store' in C:\Users\tomyo\Projects\solarize-ops\.next\server for build dependencies doesn't lead to expected result 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\use-sync-external-store.js', but to 'Error: Can't resolve './vendor-chunks/use-sync-external-store' in 'C:\Users\tomyo\Projects\solarize-ops\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/use-sync-external-store (expected C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\use-sync-external-store.js)
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/lucide-react' in C:\Users\tomyo\Projects\solarize-ops\.next\server for build dependencies doesn't lead to expected result 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\lucide-react.js', but to 'Error: Can't resolve './vendor-chunks/lucide-react' in 'C:\Users\tomyo\Projects\solarize-ops\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/lucide-react (expected C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\lucide-react.js)
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/swr' in C:\Users\tomyo\Projects\solarize-ops\.next\server for build dependencies doesn't lead to expected result 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\swr.js', but to 'Error: Can't resolve './vendor-chunks/swr' in 'C:\Users\tomyo\Projects\solarize-ops\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/swr (expected C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\swr.js)
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/@clerk' in C:\Users\tomyo\Projects\solarize-ops\.next\server for build dependencies doesn't lead to expected result 'C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\@clerk.js', but to 'Error: Can't resolve './vendor-chunks/@clerk' in 'C:\Users\tomyo\Projects\solarize-ops\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/@clerk (expected C:\Users\tomyo\Projects\solarize-ops\.next\server\vendor-chunks\@clerk.js)
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\webpack-runtime.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\.next\server\pages\_error.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\require.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\utils.js
+<w>  at file dependencies C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs C:\Users\tomyo\Projects\solarize-ops\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+^C^C

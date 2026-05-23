@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -16,9 +17,14 @@ import {
   Shield,
   Settings,
   Users,
+  Menu,
+  X,
+  Sparkles,
+  ChevronRight,
 } from "lucide-react";
 import { useUserRole } from "@/lib/useUserRole";
 import { useTheme } from "@/lib/theme";
+import { appConfig } from "@/lib/app-config";
 
 const ALL_NAV = [
   { href: "/",           label: "Command center", icon: Home,          roles: null },
@@ -37,6 +43,20 @@ const NAV_GROUPS = [
   { key: "overview", label: "Overview", items: ["/", "/customers", "/jobs"] },
   { key: "operations", label: "Operations", items: ["/scheduling", "/service", "/invoices", "/reports"] },
   { key: "workspace", label: "Workspace", items: ["/settings", "/import", "/admin"] },
+];
+
+const PAGE_META = [
+  { href: "/", title: "Command center", section: "Overview", summary: "Run the day from a single operational cockpit." },
+  { href: "/customers", title: "Customers", section: "CRM", summary: "Track homeowner relationships, follow-up pressure, and communication quality." },
+  { href: "/jobs", title: "Jobs", section: "Operations", summary: "Move installs, inspections, billing, and closeout work with less friction." },
+  { href: "/scheduling", title: "Scheduling", section: "Operations", summary: "Coordinate field movement without losing the CRM context." },
+  { href: "/service", title: "Service", section: "Operations", summary: "Stay ahead of callbacks, returns, and urgent issue follow-up." },
+  { href: "/invoices", title: "Finance", section: "Revenue", summary: "Keep milestone billing and outstanding balances visible." },
+  { href: "/reports", title: "Reports", section: "Revenue", summary: "Spot pressure in the pipeline, cash flow, and operational bottlenecks." },
+  { href: "/settings", title: "Settings", section: "Workspace", summary: "Control appearance, integrations, and company-level connections." },
+  { href: "/import", title: "Import jobs", section: "Workspace", summary: "Bring new work into the system cleanly and safely." },
+  { href: "/import/sitecapture", title: "Import SiteCapture CSV", section: "Workspace", summary: "Bring raw SiteCapture exports into the CRM with a tracked rollback path." },
+  { href: "/admin", title: "Admin", section: "Workspace", summary: "Owner-only controls for the broader operating environment." },
 ];
 
 function RoleBadge({ role }) {
@@ -62,6 +82,7 @@ function SidebarContent({ children }) {
   const pathname = usePathname();
   const { user, loading, role } = useUserRole();
   const { resolvedTheme, toggleTheme } = useTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = ALL_NAV.filter(item => {
     if (!item.roles) return true;
@@ -69,15 +90,38 @@ function SidebarContent({ children }) {
   });
 
   const navByHref = new Map(navItems.map((item) => [item.href, item]));
+  const activeMeta = useMemo(() => {
+    const exact = PAGE_META.find((item) => item.href === pathname);
+    if (exact) return exact;
+    return PAGE_META.find((item) => item.href !== "/" && pathname.startsWith(item.href)) || PAGE_META[0];
+  }, [pathname]);
+
+  const todayLabel = useMemo(() => {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(new Date());
+  }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <div
+        className={`sidebar-backdrop ${sidebarOpen ? "visible" : ""}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       <aside className="app-sidebar" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div className="sidebar-brand">
           <div className="sidebar-logo">
             <Image
               src="/logo-2026.png"
-              alt="Solarize Home Energy"
+              alt={appConfig.companyName}
               width={180}
               height={72}
               style={{ objectFit: "contain", width: "100%", height: "auto" }}
@@ -85,9 +129,37 @@ function SidebarContent({ children }) {
             />
           </div>
           <div className="sidebar-brand-copy">
-            <div className="sidebar-brand-label">Solarize Operations</div>
-            <div className="sidebar-brand-subtitle">CRM and install workflow</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div className="sidebar-brand-label">{appConfig.appName}</div>
+              {appConfig.environmentLabel ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "3px 8px",
+                    borderRadius: 999,
+                    background: "rgba(245, 158, 11, 0.14)",
+                    color: "#b45309",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {appConfig.environmentLabel}
+                </span>
+              ) : null}
+            </div>
+            <div className="sidebar-brand-subtitle">{appConfig.appSubtitle}</div>
           </div>
+        </div>
+
+        <div className="sidebar-inline-status">
+          <span className="sidebar-inline-pill">
+            <Sparkles size={12} />
+            {activeMeta.section}
+          </span>
+          <span className="sidebar-inline-copy">{activeMeta.title}</span>
         </div>
 
         <button type="button" className="theme-toggle" onClick={toggleTheme}>
@@ -119,8 +191,11 @@ function SidebarContent({ children }) {
                         isAdmin ? "admin-link" : "",
                       ].filter(Boolean).join(" ")}
                     >
-                      <Icon size={15} />
-                      <span>{label}</span>
+                      <span className="sidebar-link-icon">
+                        <Icon size={15} />
+                      </span>
+                      <span className="sidebar-link-text">{label}</span>
+                      <ChevronRight size={14} className="sidebar-link-trailing" />
                     </Link>
                   );
                 })}
@@ -163,7 +238,37 @@ function SidebarContent({ children }) {
       </aside>
 
       <main className="app-main">
-        {children}
+        <div className="shell-topbar card">
+          <div className="shell-topbar-copy">
+            <button
+              type="button"
+              className="mobile-nav-toggle"
+              onClick={() => setSidebarOpen((current) => !current)}
+              aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+            >
+              {sidebarOpen ? <X size={17} /> : <Menu size={17} />}
+            </button>
+            <div className="shell-kicker">{activeMeta.section}</div>
+            <div className="shell-title-row">
+              <div className="shell-title">{activeMeta.title}</div>
+              <span className="shell-title-dot" />
+              <div className="shell-subtitle">{activeMeta.summary}</div>
+            </div>
+          </div>
+
+          <div className="shell-utility-row">
+            {appConfig.environmentLabel ? (
+              <span className="shell-chip shell-chip-strong">{appConfig.environmentLabel}</span>
+            ) : null}
+            <span className="shell-chip shell-chip-strong">{todayLabel}</span>
+            <span className="shell-chip">{role || "team"}</span>
+            <span className="shell-chip">{resolvedTheme} mode</span>
+          </div>
+        </div>
+
+        <div className="app-main-inner">
+          {children}
+        </div>
       </main>
     </div>
   );
